@@ -2,6 +2,7 @@ import { expect, it } from 'vitest';
 import {
   basename,
   crumbs,
+  fileLink,
   formatSize,
   isRoot,
   join,
@@ -101,4 +102,65 @@ it('says where a path is within a folder as git writes it', () => {
   expect(relative('/r2/a.rs', '/r')).toBeUndefined();
   expect(relative('C:\\r\\src\\a.rs', 'C:\\r')).toBe('src/a.rs');
   expect(relative('C:\\a.rs', 'C:\\')).toBe('a.rs');
+});
+
+it('finds where a link points among the files', () => {
+  const base = '/home/me/project';
+  expect(fileLink('Application/Loader/Loader.c#L549', base)).toEqual({
+    path: '/home/me/project/Application/Loader/Loader.c',
+    folder: false,
+    lines: { line: 549 },
+  });
+  expect(fileLink('src/a.rs#L10-L20', base)?.lines).toEqual({ line: 10, end: 20 });
+  expect(fileLink('src/a.rs#L10C4', base)?.lines).toEqual({ line: 10, column: 4 });
+  expect(fileLink('a.c:5:0', base)?.lines).toEqual({ line: 5 });
+  expect(fileLink('a.c#L0', base)?.lines).toBeUndefined();
+  expect(fileLink('a.c:12:3', base)).toEqual({
+    path: '/home/me/project/a.c',
+    folder: false,
+    lines: { line: 12, column: 3 },
+  });
+  expect(fileLink('README.md#usage', base)).toEqual({
+    path: '/home/me/project/README.md',
+    folder: false,
+  });
+  expect(fileLink('../meka/./src//x.rs', base)?.path).toBe('/home/me/meka/src/x.rs');
+  expect(fileLink('/etc/../etc/hosts', base)?.path).toBe('/etc/hosts');
+  expect(fileLink('my%20file.c', base)?.path).toBe('/home/me/project/my file.c');
+  expect(fileLink('file:///home/me/a%20b.c#L2', base)).toEqual({
+    path: '/home/me/a b.c',
+    folder: false,
+    lines: { line: 2 },
+  });
+  expect(fileLink('~/notes.md', base)?.path).toBe('~/notes.md');
+  expect(fileLink('~/../other', base)?.path).toBe('~/../other');
+  expect(fileLink('notes.md', '~')?.path).toBe('~/notes.md');
+  expect(fileLink('docs/', base)).toEqual({ path: '/home/me/project/docs', folder: true });
+  expect(fileLink('..', base)).toEqual({ path: '/home/me', folder: true });
+  for (const href of [
+    '#L5',
+    'https://example.com/a.c#L3',
+    'https://example.com:8080',
+    'mailto:me@example.com',
+    'tel:5550100',
+    'javascript:alert(1)',
+    '//example.com/a.c',
+    'file://server/share/a.c',
+  ])
+    expect(fileLink(href, base)).toBeUndefined();
+});
+
+it('finds where a link points among Windows files', () => {
+  expect(fileLink('src/a.c#L3', 'C:\\work')).toEqual({
+    path: 'C:\\work\\src\\a.c',
+    folder: false,
+    lines: { line: 3 },
+  });
+  expect(fileLink('..\\..\\x.c', 'C:\\a\\b')?.path).toBe('C:\\x.c');
+  expect(fileLink('C:/Users/me/../a.c:7', 'C:\\work')).toEqual({
+    path: 'C:\\Users\\a.c',
+    folder: false,
+    lines: { line: 7 },
+  });
+  expect(fileLink('file:///C:/a.c', 'C:\\work')?.path).toBe('C:\\a.c');
 });

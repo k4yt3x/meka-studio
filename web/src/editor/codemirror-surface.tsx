@@ -247,6 +247,7 @@ function tellCursor(shown: Shown, view: EditorView) {
 export function Surface({
   store,
   file,
+  asked,
   readOnly,
   dark,
   fontSize,
@@ -310,6 +311,22 @@ export function Surface({
     tellCursor(current, made);
     current.language(each.language);
   }, [file, dark, fontSize, readOnly]);
+  // Each time the file is asked for, it goes to the lines it was opened at, over where it was left.
+  useEffect(() => {
+    const view = shown.current.view;
+    const lines = store.takeLines(file.path);
+    if (!view || !lines) return;
+    const doc = view.state.doc;
+    const first = doc.line(Math.min(lines.line, doc.lines));
+    const anchor = lines.end
+      ? first.from
+      : first.from + Math.min((lines.column ?? 1) - 1, first.length);
+    const head = lines.end ? doc.line(Math.min(lines.end, doc.lines)).to : anchor;
+    view.dispatch({
+      selection: { anchor, head },
+      effects: EditorView.scrollIntoView(anchor, { y: 'center' }),
+    });
+  }, [store, file, asked]);
   // The theme follows the page's, for the file shown and those kept.
   useEffect(() => {
     const effects = compartments.theme.reconfigure([frame(dark, fontSize), highlighting(dark)]);

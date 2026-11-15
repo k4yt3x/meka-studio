@@ -77,6 +77,8 @@ The folder button at the right edge of a session opens **Files** in the side pan
 
 A `file_read`, `file_write` or `file_edit` call in the conversation has **Open in Files**, which shows the file in the tree and opens it in the editor.
 
+A link to a file in the conversation, such as `[main](src/main.rs#L10)`, opens the file in the editor, at the line or lines it names with `#L10`, `#L10-L20` or `:10`; a link to a folder, ending in `/`, shows it in Files. A relative path starts from the session's working directory, and in a Markdown **Preview** from the folder of the file shown. Hover over such a link to see the path it opens.
+
 Files acts as Meka Studio's user, which can do no more there than its shell can. Showing a repository runs no program its own git config names, such as a filter, so one unpacked from an archive cannot run anything by being shown; those in your own git config, such as Git LFS's, still run.
 
 ## Editor

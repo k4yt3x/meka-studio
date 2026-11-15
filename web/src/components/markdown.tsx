@@ -1,9 +1,17 @@
-import { useState, isValidElement, memo, type ComponentProps, type ReactElement } from 'react';
-import ReactMarkdown from 'react-markdown';
+import {
+  useState,
+  isValidElement,
+  memo,
+  type ComponentProps,
+  type ReactElement,
+  type ReactNode,
+} from 'react';
+import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
 import remarkCjkFriendly from 'remark-cjk-friendly/parseOnly';
 import remarkGfm from 'remark-gfm';
 import rehypeKatex from 'rehype-katex';
 import { CircleAlert, Info, Lightbulb, OctagonAlert } from 'lucide-react';
+import { fileLink, type FileLink } from '../files/paths';
 import { CopyButton, WrapButton } from './common';
 import { Diagram } from './diagram';
 import { MarkdownTable } from './markdown-table';
@@ -19,6 +27,7 @@ import {
   rehypeMathSource,
 } from './markdown-math';
 import { remarkAdmonitions, rehypeTaskLabels } from './markdown-plugins';
+import { useWorkspace } from './workspace';
 import 'katex/dist/katex.min.css';
 
 export function MarkdownPreview({ text }: { text: string }) {
@@ -84,6 +93,36 @@ function FencedBlock({ children }: ComponentProps<'pre'>) {
     <CodeBlock text={text} language={language} />
   );
 }
+/** A link to a file, which opens it in the editor, or to a folder, which opens it in Files. */
+function FileAnchor({
+  link,
+  id,
+  children,
+}: {
+  link: FileLink;
+  id: string | undefined;
+  children: ReactNode;
+}) {
+  const workspace = useWorkspace();
+  const open = () =>
+    link.folder ? workspace?.openFiles(link.path) : workspace?.openFile(link.path, link.lines);
+  const { lines } = link;
+  return (
+    <a
+      role="link"
+      tabIndex={0}
+      className="file-link"
+      id={id}
+      title={lines ? `${link.path}:${lines.line}${lines.end ? `-${lines.end}` : ''}` : link.path}
+      onClick={open}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter') open();
+      }}
+    >
+      {children}
+    </a>
+  );
+}
 const alertTitles: Record<string, string> = {
   note: 'Note',
   tip: 'Tip',
@@ -91,7 +130,16 @@ const alertTitles: Record<string, string> = {
   warning: 'Warning',
   caution: 'Caution',
 };
-export const Markdown = memo(function Markdown({ text }: { text: string }) {
+export const Markdown = memo(function Markdown({
+  text,
+  base,
+}: {
+  text: string;
+  /** The folder a relative link to a file starts from; without it, links keep their addresses. */
+  base?: string | undefined;
+}) {
+  // Links to files open in the session's editor, which only a session's workspace has.
+  const folder = useWorkspace() ? base : undefined;
   return (
     <div
       className="markdown"
@@ -115,6 +163,11 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
           rehypeMathAccessibility,
         ]}
         skipHtml
+        urlTransform={(url, key) =>
+          key === 'href' && folder !== undefined && fileLink(url, folder)
+            ? url
+            : defaultUrlTransform(url)
+        }
         components={{
           pre: FencedBlock,
           table: MarkdownTable,
@@ -148,6 +201,13 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
             );
           },
           a: ({ children, href, title, id, node }) => {
+            const link = href && folder !== undefined ? fileLink(href, folder) : undefined;
+            if (link)
+              return (
+                <FileAnchor link={link} id={id}>
+                  {children}
+                </FileAnchor>
+              );
             const fragment = href?.startsWith('#');
             return (
               <a

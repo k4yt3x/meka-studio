@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import { Markdown } from './markdown';
+import { WorkspaceProvider, type Workspace } from './workspace';
 
 const render = (text: string) => renderToStaticMarkup(<Markdown text={text} />);
 
@@ -104,4 +105,29 @@ it('composes with tables, math, admonitions, and the existing HTML and URL restr
   expect(html).toContain('class="katex"');
   expect(html).toContain('<strong>注意：</strong>');
   expect(html).not.toMatch(/<script|javascript:/);
+});
+
+it('opens links to files in the session, found from its folder, and leaves addresses alone', () => {
+  const workspace = { folder: '/w' } as Workspace;
+  const text = [
+    '[`TouchMarkerFile()`](Application/Loader.c#L549) [b](b.c:3) [docs](docs/)',
+    '[site](https://example.invalid/a.c) [top](#notes) [bad](javascript:alert%281%29)',
+  ].join(' ');
+  const html = renderToStaticMarkup(
+    <WorkspaceProvider value={workspace}>
+      <Markdown text={text} base="/w" />
+    </WorkspaceProvider>,
+  );
+  const loader = /<a [^>]*title="\/w\/Application\/Loader.c:549"[^>]*>/.exec(html)?.[0];
+  expect(loader).toContain('role="link"');
+  expect(loader).not.toContain('href');
+  expect(html).toContain('title="/w/b.c:3"');
+  expect(html).toContain('title="/w/docs"');
+  expect(html).toContain('href="https://example.invalid/a.c" target="_blank"');
+  expect(html).toContain('href="#notes"');
+  expect(html).not.toContain('javascript:');
+  // Without a session's workspace, a link keeps its address.
+  expect(render('[a](Application/Loader.c#L549)')).toContain(
+    'href="Application/Loader.c#L549" target="_blank"',
+  );
 });

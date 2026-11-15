@@ -239,6 +239,7 @@ function useTheme(dark: boolean) {
 export function Surface({
   store,
   file,
+  asked,
   readOnly,
   dark,
   fontSize,
@@ -328,8 +329,6 @@ export function Surface({
       }
       shown.current = file.path;
     }
-    // Only a file asked for takes the keyboard, not one shown as a session opens.
-    if (store.takeFocus(file.path)) made.focus();
     const position = made.getPosition();
     if (position) cursor.current(position.lineNumber, position.column);
     const tell = () => named.current(languageName(model.getLanguageId()));
@@ -347,6 +346,27 @@ export function Surface({
       reindented.dispose();
     };
   }, [store, file]);
+  // Each time the file is asked for, it goes to the lines it was opened at, over where it was left,
+  // and takes the keyboard: only a file asked for does, not one shown as a session opens.
+  useEffect(() => {
+    const made = editor.current;
+    const model = made?.getModel();
+    if (!made || !model) return;
+    const lines = store.takeLines(file.path);
+    if (lines) {
+      const count = model.getLineCount();
+      const line = Math.min(lines.line, count);
+      const end = Math.min(lines.end ?? line, count);
+      const range = lines.end
+        ? new monaco.Range(line, 1, end, model.getLineMaxColumn(end))
+        : monaco.Range.fromPositions(
+            model.validatePosition({ lineNumber: line, column: lines.column ?? 1 }),
+          );
+      made.setSelection(range);
+      made.revealRangeInCenter(range);
+    }
+    if (store.takeFocus(file.path)) made.focus();
+  }, [store, file, asked]);
   useEffect(() => {
     editor.current?.updateOptions({ readOnly, fontSize, wordWrap: wrap ? 'on' : 'off' });
   }, [readOnly, fontSize, wrap]);

@@ -204,3 +204,100 @@ export function toolPath(name: string, input: unknown): string | undefined {
   const path = (input as Record<string, unknown>).path;
   return typeof path === 'string' && isAbsolute(path) ? path : undefined;
 }
+
+/** Lines of a file to go to: `line`, at `column` if given, or `line` to `end`, chosen. */
+export interface LineTarget {
+  line: number;
+  column?: number;
+  end?: number;
+}
+
+/** Where a link points among the files. */
+export interface FileLink {
+  /** The path, absolute or from `~`, with its `.` and `..` resolved. */
+  path: string;
+  /** Whether the link names a folder: it ends in a separator, `.` or `..`. */
+  folder: boolean;
+  /** The lines the link points at, written `#L10`, `#L10C4`, `#L10-L20` or `:10` after the path. */
+  lines?: LineTarget;
+}
+
+/** Whether `path` starts from the home folder, `~`. */
+function fromHome(path: string): boolean {
+  return /^~(?:[\\/]|$)/.test(path);
+}
+
+/** `path`, absolute or from `~`, with its `.` and `..` resolved as Files resolves them. */
+function normalized(path: string): string {
+  const home = fromHome(path);
+  const windows = isWindows(path);
+  const top = home ? '~' : root(path);
+  const between = home ? (path[1] === '\\' ? '\\' : '/') : separator(path);
+  const names: string[] = [];
+  for (const name of path.slice(top.length).split(windows || between === '\\' ? /[\\/]/ : '/')) {
+    if (!name || name === '.') continue;
+    if (name !== '..') names.push(name);
+    else if (names.length && names.at(-1) !== '..') names.pop();
+    // Above the home folder is another folder, which Files finds; above a root is the root.
+    else if (home) names.push(name);
+  }
+  if (home) return names.length ? `~${between}${names.join(between)}` : '~';
+  return (windows ? top.replaceAll('/', '\\') : top) + names.join(between);
+}
+
+/** `text` with its percent escapes decoded, or as it is where they do not decode. */
+function decoded(text: string): string {
+  try {
+    return decodeURIComponent(text);
+  } catch {
+    return text;
+  }
+}
+
+/**
+ * Where the link `href` points among the files, a relative path found from the folder `base`. A
+ * path, absolute, from `~` or relative, and a `file:` address with no host are files'; an address
+ * with another scheme, and one within the page, `#…`, are not.
+ */
+export function fileLink(href: string, base: string): FileLink | undefined {
+  if (!href || href.startsWith('#') || href.startsWith('//')) return undefined;
+  const hash = href.indexOf('#');
+  let path = hash < 0 ? href : href.slice(0, hash);
+  const fragment = hash < 0 ? '' : href.slice(hash + 1);
+  if (/^file:/i.test(path)) {
+    let url: URL;
+    try {
+      url = new URL(path);
+    } catch {
+      return undefined;
+    }
+    if (url.host && url.host !== 'localhost') return undefined;
+    path = decoded(url.pathname).replace(/^\/(?=[A-Za-z]:[\\/])/, '');
+  } else path = decoded(path);
+  let lines: LineTarget | undefined;
+  // A path before a line holds a `.`, `/` or `\`, which the schemes links use do not: `a.c:10` is a
+  // path, and `tel:5550100` stays an address.
+  const suffix = /^(.+?):(\d+)(?::(\d+))?$/.exec(path);
+  if (suffix?.[1] && /[./\\]/.test(suffix[1])) {
+    path = suffix[1];
+    lines = {
+      line: Number(suffix[2]),
+      ...(Number(suffix[3]) > 0 && { column: Number(suffix[3]) }),
+    };
+  }
+  if (/^[A-Za-z][A-Za-z\d+.-]*:/.test(path) && !isWindows(path)) return undefined;
+  const marked = /^L(\d+)(?:C(\d+))?(?:-L?(\d+)(?:C\d+)?)?$/i.exec(fragment);
+  if (marked)
+    lines = {
+      line: Number(marked[1]),
+      ...(Number(marked[2]) > 0 && { column: Number(marked[2]) }),
+      ...(marked[3] && Number(marked[3]) > Number(marked[1]) && { end: Number(marked[3]) }),
+    };
+  if (!path) return undefined;
+  const absolute = isAbsolute(path) || fromHome(path);
+  return {
+    path: normalized(absolute ? path : join(base, path)),
+    folder: /(?:^|[\\/])\.{0,2}$/.test(path),
+    ...(lines && lines.line > 0 && { lines }),
+  };
+}

@@ -3753,6 +3753,10 @@ summary.compaction-rule:hover::after {
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }
+/* A link to a file has no address, so the browser shows no pointer over it by itself. */
+.markdown .file-link {
+  cursor: pointer;
+}
 .markdown h1,
 .markdown h2,
 .markdown h3 {

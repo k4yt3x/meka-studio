@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef } from 'react';
+import type { LineTarget } from '../files/paths';
 
 /**
  * What a session's workspace offers what is shown in it: Files, opened at a path, the editor, its
@@ -7,8 +8,8 @@ import { createContext, useContext, useEffect, useRef } from 'react';
 export interface Workspace {
   /** Opens Files at the folder `path`, showing the file `open` in it, and opening it, if given. */
   openFiles(path: string, open?: string): void;
-  /** Opens the file `path` in the editor. */
-  openFile(path: string): void;
+  /** Opens the file `path` in the editor, at `lines` if given. */
+  openFile(path: string, lines?: LineTarget): void;
   /** The session's working directory, or the folder chosen for a new one. */
   folder: string;
   /** Shows the file `path` in Files, chosen in its folder, without opening it. */

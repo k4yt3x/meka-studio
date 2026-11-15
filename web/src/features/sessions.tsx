@@ -39,7 +39,7 @@ import { FileBrowser, type FilesTarget } from './file-browser';
 import { EditorPane } from './editor-pane';
 import { editorStore, saveFirst, useEditorStore } from '../editor/use-editor';
 import { terminalOf } from '../editor/store';
-import { basename, join, parent } from '../files/paths';
+import { basename, join, parent, type LineTarget } from '../files/paths';
 import { focusMessage, WorkspaceProvider, type Workspace } from '../components/workspace';
 import { useSessionContext, useSessionMetadata, useSessionStates } from '../session/hooks';
 import { isSessionRunning } from '../session/controller';
@@ -316,9 +316,9 @@ export function SessionsPage({
   }
   const mentionTarget = useRef<((text: string) => void) | undefined>(undefined);
   const workspaceValue = useMemo<Workspace>(() => {
-    /** Opens `path` in the editor. */
-    const openFile = (path: string) => {
-      opening.current.store.open(opening.current.place, path);
+    /** Opens `path` in the editor, at `lines` if given. */
+    const openFile = (path: string, lines?: LineTarget) => {
+      opening.current.store.open(opening.current.place, path, lines);
       setLastOpened('editor');
       setListByHand(false);
       if (!desktop) {

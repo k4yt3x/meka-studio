@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A link to a file in the conversation or a Markdown preview opens it in the editor, at its line.
+
 ### Fixed
 
 - The editor's find and replace box and command palette no longer take on the page's styles.

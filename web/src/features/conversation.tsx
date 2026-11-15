@@ -89,7 +89,7 @@ import { CopyAction, HistoryAction, MessageEditor, TurnActions } from './turn-ac
 import { ChecklistStrip } from './checklist-strip';
 import { ContextMeter } from './session-context';
 import { TurnSummary } from './turn-summary';
-import { focusMessage, useMentions } from '../components/workspace';
+import { focusMessage, useMentions, useWorkspace } from '../components/workspace';
 import {
   DEFAULT_INPUT_HEIGHT,
   emptyComposerOptions,
@@ -832,6 +832,11 @@ function AgentActivity({
     </p>
   );
 }
+/** Markdown the session holds, whose relative links to files start from the session's folder. */
+function SessionMarkdown({ text }: { text: string }) {
+  const workspace = useWorkspace();
+  return <Markdown text={text} base={workspace?.folder} />;
+}
 /** What Meka wrote to send the agent back to work, kept apart from what the person wrote. */
 function Nudge({ kind, text }: { kind: string; text: string }) {
   return (
@@ -1008,7 +1013,7 @@ function LiveBlocks({
     ) : block.kind === 'notice' ? (
       <TurnNotice key={index} notice={block} />
     ) : (
-      <Markdown key={index} text={block.text} />
+      <SessionMarkdown key={index} text={block.text} />
     );
   return foldItems(blocks, {
     sessionId: state.id,
@@ -1089,7 +1094,7 @@ function Thinking({
           </span>
         )}
       </summary>
-      {open && <Markdown text={text} />}
+      {open && <SessionMarkdown text={text} />}
     </details>
   );
 }
@@ -1362,7 +1367,7 @@ function SentMessage({
           )
         }
       />
-      {submission.body.message && <Markdown text={submission.body.message} />}
+      {submission.body.message && <SessionMarkdown text={submission.body.message} />}
       {images.map((image, index) =>
         // Sent again by hash, the image is the one the session already holds.
         image.hash ? (
@@ -1472,7 +1477,7 @@ function ContentBlock({
   switch (block.type) {
     case 'text':
     case 'refusal':
-      return <Markdown text={block.text} />;
+      return <SessionMarkdown text={block.text} />;
     case 'turn_context':
       return (
         <details className="injected">
@@ -1489,11 +1494,11 @@ function ContentBlock({
     case 'nudge':
       return <Nudge kind={block.kind} text={block.text} />;
     case 'inbox':
-      return <Markdown text={block.body} />;
+      return <SessionMarkdown text={block.body} />;
     case 'invocation':
       return (
         <>
-          {block.directive.trim() && <Markdown text={block.directive} />}
+          {block.directive.trim() && <SessionMarkdown text={block.directive} />}
           <p className="muted small">
             {block.kind === 'mcp_prompt' ? 'Prompt' : 'Skill'}: {block.name}
           </p>

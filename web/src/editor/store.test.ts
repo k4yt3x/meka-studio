@@ -95,6 +95,19 @@ describe('editor store', () => {
     expect(store.file('/w/c.png')).toMatchObject({ kind: 'image', state: 'ready' });
   });
 
+  it('hands the lines a file was opened at to its editor once', () => {
+    const { store } = setup({ '/w/a.ts': { text: 'a', version: 'v0' } });
+    store.open('s', '/w/a.ts', { line: 3, end: 5 });
+    expect(store.takeLines('/w/a.ts')).toEqual({ line: 3, end: 5 });
+    expect(store.takeLines('/w/a.ts')).toBeUndefined();
+    store.open('s', '/w/a.ts', { line: 9 });
+    store.open('s', '/w/a.ts');
+    expect(store.takeLines('/w/a.ts')).toBeUndefined();
+    store.open('s', '/w/a.ts', { line: 2 });
+    store.moved('/w/a.ts', '/w/b.ts');
+    expect(store.takeLines('/w/b.ts')).toEqual({ line: 2 });
+  });
+
   it('shows a file that is not text as such', async () => {
     const { store } = setup({ '/w/data.txt': { text: 'x', version: 'v0', binary: true } });
     store.open('s', '/w/data.txt');

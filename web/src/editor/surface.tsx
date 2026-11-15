@@ -6,6 +6,8 @@ import type { EditorStore, OpenFile } from './store';
 export interface SurfaceProps {
   store: EditorStore;
   file: OpenFile;
+  /** How many times the file was asked for; each time, it goes to the lines it was opened at. */
+  asked: number;
   readOnly: boolean;
   dark: boolean;
   fontSize: number;

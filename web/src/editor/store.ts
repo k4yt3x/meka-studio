@@ -1,6 +1,6 @@
 import { ApiError } from '../api/client';
 import { isProblem, type Gateway, type GatewayClient } from '../api/gateway';
-import { basename, movedTo, parent, previewKind, within } from '../files/paths';
+import { basename, movedTo, parent, previewKind, within, type LineTarget } from '../files/paths';
 
 /** How an open file shows: as text to edit, or by what it is. */
 export type FileKind = 'text' | 'image' | 'video' | 'audio' | 'pdf' | 'binary';
@@ -128,6 +128,8 @@ export class EditorStore {
   private focusing: string | undefined;
   /** How many times each tab was asked for, for it to take the keyboard each time. */
   private asks = new Map<string, number>();
+  /** The lines each file was last opened at, for its editor to go to once it shows. */
+  private lines = new Map<string, LineTarget>();
   private serial = 0;
   /** Files asked to be saved again while being saved. */
   private again = new Set<string>();
@@ -278,6 +280,13 @@ export class EditorStore {
     return true;
   }
 
+  /** The lines the file `path` was last opened at, for its editor to go to; taken once. */
+  takeLines(path: string): LineTarget | undefined {
+    const lines = this.lines.get(path);
+    this.lines.delete(path);
+    return lines;
+  }
+
   /** Every open file with changes not saved. */
   dirty(): OpenFile[] {
     return [...this.files.values()].filter((file) => file.dirty);
@@ -315,8 +324,10 @@ export class EditorStore {
     this.asks.set(key, this.asked(key) + 1);
   }
 
-  /** Opens `path` in `place`, after the tab shown, and shows it. */
-  open(place: string, path: string) {
+  /** Opens `path` in `place`, after the tab shown, and shows it, at `lines` if given. */
+  open(place: string, path: string, lines?: LineTarget) {
+    if (lines) this.lines.set(path, lines);
+    else this.lines.delete(path);
     this.insert(place, path);
     if (this.add(path) && this.files.get(path)?.state === 'loading') void this.load(path);
     this.emit();
@@ -398,6 +409,9 @@ export class EditorStore {
       const asked = this.asks.get(path);
       this.asks.delete(path);
       if (asked !== undefined) this.asks.set(now, asked);
+      const lines = this.lines.get(path);
+      this.lines.delete(path);
+      if (lines) this.lines.set(now, lines);
     }
     for (const [place, tabs] of this.places)
       this.places.set(place, {
@@ -479,6 +493,7 @@ export class EditorStore {
       }
       this.files.delete(key);
       this.unread.delete(key);
+      this.lines.delete(key);
       this.documents?.drop(key);
     }
     this.emit();

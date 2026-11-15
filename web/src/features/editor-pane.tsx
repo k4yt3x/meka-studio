@@ -780,7 +780,10 @@ function EditorBody({
       <ErrorNotice error={file.saveError} />
       {previewing ? (
         <div className="code-preview">
-          <Markdown text={store.documents?.text(file.path, '\n')?.text ?? file.text} />
+          <Markdown
+            text={store.documents?.text(file.path, '\n')?.text ?? file.text}
+            base={parent(file.path)}
+          />
         </div>
       ) : showCompare ? (
         <CompareSurface
@@ -797,6 +800,7 @@ function EditorBody({
           touch={touch}
           store={store}
           file={file}
+          asked={store.asked(file.path)}
           readOnly={readOnly}
           dark={dark}
           fontSize={fontSize}
