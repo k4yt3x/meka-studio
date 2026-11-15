@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - A link to a file in the conversation or a Markdown preview opens it in the editor, at its line.
 
+### Changed
+
+- A session's row gives its title the whole width; pointing at it shows when it last changed.
+
 ### Fixed
 
 - The editor's find and replace box and command palette no longer take on the page's styles.

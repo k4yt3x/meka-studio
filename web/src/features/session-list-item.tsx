@@ -15,6 +15,7 @@ import { ErrorNotice } from '../components/common';
 import { Button } from '../components/ui/button';
 import { SessionDeleteDialog, SessionRenameDialog } from './session-metadata';
 import { editorStore, saveFirst } from '../editor/use-editor';
+import { formatWhen } from '../session/turn-summary';
 import type { SessionStatus } from '../session/unread';
 
 const statusLabels: Record<SessionStatus, string | undefined> = {
@@ -111,7 +112,15 @@ export function SessionListItem({
   const about = [session.profile, session.project, session.parent_id ? 'sub-agent' : undefined]
     .filter(Boolean)
     .join(' · ');
-  const tooltip = [title, statusLabels[status], about].filter(Boolean).join('\n');
+  const changed = new Date(session.updated_at);
+  const tooltip = [
+    title,
+    statusLabels[status],
+    about,
+    Number.isNaN(changed.getTime()) ? undefined : `Changed ${formatWhen(changed)}`,
+  ]
+    .filter(Boolean)
+    .join('\n');
   const editable = canWrite && !session.parent_id;
   useLayoutEffect(() => {
     if (pinFocus === undefined || pinAction.busy || Boolean(session.pinned_at) !== pinFocus) return;
@@ -206,12 +215,6 @@ export function SessionListItem({
             {session.pinned_at && (
               <Pin className="session-item-pin" size={11} aria-label="Pinned" />
             )}
-            <time className="session-item-date" dateTime={session.updated_at}>
-              {new Date(session.updated_at).toLocaleDateString([], {
-                month: 'short',
-                day: 'numeric',
-              })}
-            </time>
           </div>
           {(excerpt || project) && (
             <p className="session-excerpt">

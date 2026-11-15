@@ -77,6 +77,11 @@ function moment(date: Date, now: Date) {
   return sameDay(date, now) ? clock(date, true) : `${day(date, now)}, ${clock(date, true)}`;
 }
 
+/** When `date` was, as `at 10:36`, or `on Nov 14 at 10:36` when it was not today. */
+export function formatWhen(date: Date, now = new Date()): string {
+  return sameDay(date, now) ? `at ${clock(date)}` : `on ${day(date, now)} at ${clock(date)}`;
+}
+
 /** How long the turn ran, if its times say. */
 function elapsed(turn: TurnRecord) {
   if (!turn.ended_at) return;
@@ -92,9 +97,7 @@ export function turnSummary(turn: TurnRecord, now = new Date()): string | undefi
   if (!turn.status || !turn.ended_at) return;
   const ended = new Date(turn.ended_at);
   if (Number.isNaN(ended.getTime())) return;
-  const when = sameDay(ended, now)
-    ? `at ${clock(ended)}`
-    : `on ${day(ended, now)} at ${clock(ended)}`;
+  const when = formatWhen(ended, now);
   const ran = elapsed(turn);
   return [
     ENDINGS[turn.status] ?? 'Ended',

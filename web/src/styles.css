@@ -2302,7 +2302,7 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
 .session-item.selected {
   background: var(--accent-soft);
 }
-/* One line: what state it is in, its title, and when it last changed. */
+/* One line: what state it is in and its title, which takes the row's width. */
 .session-item-title {
   grid-column: 1;
   grid-row: 1;
@@ -2311,19 +2311,9 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
   gap: 6px;
   line-height: 1.5;
 }
-.session-item-pin,
-.session-item-date {
-  flex-shrink: 0;
-  color: var(--muted);
-}
 .session-item-pin {
+  flex-shrink: 0;
   color: var(--accent);
-}
-.session-item-date {
-  margin-left: auto;
-  padding-left: 4px;
-  font-size: 0.62rem;
-  white-space: nowrap;
 }
 
 .session-row-actions {
@@ -2422,11 +2412,9 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
     opacity: 1;
     pointer-events: auto;
   }
-  /* Its buttons take the place of when it changed. */
-  .session-item:is(:hover, [data-busy='true']) :is(.session-item-pin, .session-item-date),
-  :root:not([data-focus-input='pointer'])
-    .session-item:has(:focus-visible)
-    :is(.session-item-pin, .session-item-date) {
+  /* While its buttons show, the pin button says whether it is pinned. */
+  .session-item:is(:hover, [data-busy='true']) .session-item-pin,
+  :root:not([data-focus-input='pointer']) .session-item:has(:focus-visible) .session-item-pin {
     display: none;
   }
   .session-item:is(:hover, [data-busy='true']) .session-item-title,
@@ -4530,9 +4518,6 @@ body:has(.settings-dialog[data-state='open']) .approval-tray {
   }
   .session-item {
     padding: var(--session-row-padding) 12px;
-  }
-  .session-item-date {
-    font-size: 0.7rem;
   }
   .session-group-toggle {
     min-height: 36px;
