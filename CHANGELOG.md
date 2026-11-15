@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The editor's find and replace box and command palette no longer take on the page's styles.
+
 ## [0.42.0] - 2026-11-12
 
 ### Added

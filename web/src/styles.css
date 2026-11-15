@@ -1,6 +1,26 @@
 @import 'tailwindcss';
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Monaco draws its widgets for the browser's own styles and shares some class names with this
+   sheet (.actions, .button, .disabled, .empty, .message, .small). Rules on element types or on
+   those names end in :where(:not([data-surface^='monaco'] *)) to leave a Monaco surface alone, and
+   inside one Tailwind's resets and utilities give way to the browser's defaults. */
+@layer base {
+  [data-surface^='monaco'] *,
+  [data-surface^='monaco'] ::before,
+  [data-surface^='monaco'] ::after,
+  [data-surface^='monaco'] ::placeholder {
+    all: revert-layer;
+  }
+}
+@layer utilities {
+  [data-surface^='monaco'] *,
+  [data-surface^='monaco'] ::before,
+  [data-surface^='monaco'] ::after {
+    all: revert-layer;
+  }
+}
+
 :root {
   font-family:
     Inter,
@@ -59,89 +79,72 @@
   --success: #6cc995;
   --shadow: 0 12px 48px #0005;
 }
-* {
-  box-sizing: border-box;
-}
 body {
   margin: 0;
   min-width: 320px;
 }
-button,
-input,
-select,
-textarea {
-  font: inherit;
-}
-button,
-a,
-input,
-select,
-textarea,
-summary {
+:is(button, a, input, select, textarea, summary):where(:not([data-surface^='monaco'] *)) {
   touch-action: manipulation;
 }
-button,
-summary {
+:is(button, summary):where(:not([data-surface^='monaco'] *)) {
   cursor: pointer;
 }
-button:disabled,
-.disabled {
+button:disabled:where(:not([data-surface^='monaco'] *)),
+.disabled:where(:not([data-surface^='monaco'] *)) {
   cursor: not-allowed;
   opacity: 0.5;
 }
-a {
+a:where(:not([data-surface^='monaco'] *)) {
   color: var(--accent);
   text-decoration: none;
 }
-a:hover {
+a:where(:not([data-surface^='monaco'] *)):hover {
   text-decoration: underline;
 }
-:where(button, a, input, textarea, select, summary, [tabindex='0']):focus-visible {
+:where(button, a, input, textarea, select, summary, [tabindex='0']):where(
+    :not([data-surface^='monaco'] *)
+  ):focus-visible {
   outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
   outline-offset: 2px;
 }
 @media (forced-colors: none) {
   /* Scripted focus after pointer interaction must not leave a keyboard ring. */
-  :root[data-focus-input='pointer'] :focus {
+  :root[data-focus-input='pointer'] :focus:where(:not([data-surface^='monaco'] *)) {
     outline: none;
   }
 }
-h1,
-h2,
-h3,
-h4,
-p {
+:is(h1, h2, h3, h4, p):where(:not([data-surface^='monaco'] *)) {
   margin: 0;
 }
-h1 {
+h1:where(:not([data-surface^='monaco'] *)) {
   font-size: 1.7rem;
   font-weight: 650;
   letter-spacing: -0.055em;
   line-height: 1.25;
 }
-h2 {
+h2:where(:not([data-surface^='monaco'] *)) {
   font-size: 1.05rem;
   font-weight: 620;
   letter-spacing: -0.025em;
 }
-h3 {
+h3:where(:not([data-surface^='monaco'] *)) {
   font-size: 0.9rem;
   font-weight: 650;
 }
-h4 {
+h4:where(:not([data-surface^='monaco'] *)) {
   font-size: 0.8rem;
   font-weight: 600;
 }
-p {
+p:where(:not([data-surface^='monaco'] *)) {
   line-height: 1.65;
 }
-small,
-.small {
+small:where(:not([data-surface^='monaco'] *)),
+.small:where(:not([data-surface^='monaco'] *)) {
   font-size: 0.76rem;
 }
-input:not([type='checkbox'], [type='file'], [type='range']),
-select,
-textarea {
+input:not([type='checkbox'], [type='file'], [type='range']):where(:not([data-surface^='monaco'] *)),
+select:where(:not([data-surface^='monaco'] *)),
+textarea:where(:not([data-surface^='monaco'] *)) {
   width: 100%;
   border: 1px solid var(--border);
   border-radius: 7px;
@@ -152,22 +155,24 @@ textarea {
   min-height: 39px;
   transition: border-color 0.15s;
 }
-input::placeholder,
-textarea::placeholder {
+input:where(:not([data-surface^='monaco'] *))::placeholder,
+textarea:where(:not([data-surface^='monaco'] *))::placeholder {
   color: var(--muted);
   opacity: 0.8;
 }
-input:not([type='checkbox'], [type='file'], [type='range']):focus,
-select:focus,
-textarea:focus {
+input:not([type='checkbox'], [type='file'], [type='range']):where(
+    :not([data-surface^='monaco'] *)
+  ):focus,
+select:where(:not([data-surface^='monaco'] *)):focus,
+textarea:where(:not([data-surface^='monaco'] *)):focus {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
-textarea {
+textarea:where(:not([data-surface^='monaco'] *)) {
   resize: vertical;
   min-height: 90px;
   line-height: 1.65;
 }
-fieldset {
+fieldset:where(:not([data-surface^='monaco'] *)) {
   border: 0;
   padding: 0;
   margin: 0;
@@ -175,29 +180,28 @@ fieldset {
   flex-direction: column;
   gap: 17px;
 }
-summary {
+summary:where(:not([data-surface^='monaco'] *)) {
   font-size: 0.8rem;
   color: var(--muted);
   padding: 10px 0;
   user-select: none;
 }
-details[open] > summary {
+details[open] > summary:where(:not([data-surface^='monaco'] *)) {
   margin-bottom: 6px;
 }
-pre,
-code {
+:is(pre, code):where(:not([data-surface^='monaco'] *)) {
   font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', monospace;
   font-size: 0.82em;
 }
-pre {
+pre:where(:not([data-surface^='monaco'] *)) {
   overflow: auto;
 }
-progress {
+progress:where(:not([data-surface^='monaco'] *)) {
   width: 100%;
   height: 8px;
   accent-color: var(--accent);
 }
-.button {
+.button:where(:not([data-surface^='monaco'] *)) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -215,7 +219,7 @@ progress {
     color 0.14s;
   flex-shrink: 0;
 }
-.button:hover {
+.button:where(:not([data-surface^='monaco'] *)):hover {
   text-decoration: none;
 }
 .button-primary {
@@ -278,7 +282,7 @@ progress {
   height: 36px;
   padding: 7px;
 }
-.actions {
+.actions:where(:not([data-surface^='monaco'] *)) {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1341,11 +1345,11 @@ pre.bounded {
     transform: rotate(360deg);
   }
 }
-.empty {
+.empty:where(:not([data-surface^='monaco'] *)) {
   text-align: center;
   padding: 70px 20px;
 }
-.empty h2 {
+.empty h2:where(:not([data-surface^='monaco'] *)) {
   font-size: 1.25rem;
   margin-bottom: 12px;
   letter-spacing: -0.04em;
@@ -1354,7 +1358,7 @@ pre.bounded {
   font-size: 0.83rem;
   line-height: 1.8;
 }
-.empty .actions {
+.empty .actions:where(:not([data-surface^='monaco'] *)) {
   justify-content: center;
   margin-top: 18px;
 }
@@ -1995,7 +1999,7 @@ pre.bounded {
   margin: 10px 0;
   font-size: 0.8rem;
 }
-progress {
+progress:where(:not([data-surface^='monaco'] *)) {
   appearance: none;
   width: 100%;
   height: 6px;
@@ -2005,13 +2009,13 @@ progress {
   background: var(--surface);
   color: var(--accent);
 }
-progress::-webkit-progress-bar {
+progress:where(:not([data-surface^='monaco'] *))::-webkit-progress-bar {
   background: var(--surface);
 }
-progress::-webkit-progress-value {
+progress:where(:not([data-surface^='monaco'] *))::-webkit-progress-value {
   background: var(--accent);
 }
-progress::-moz-progress-bar {
+progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
   background: var(--accent);
 }
 .session-list {
@@ -3227,10 +3231,10 @@ progress::-moz-progress-bar {
 .conversation-history > .conversation-width > .empty:only-child h2 {
   margin: 0;
 }
-.message {
+.message:where(:not([data-surface^='monaco'] *)) {
   padding: 16px 0 26px;
 }
-.message > header {
+.message > header:where(:not([data-surface^='monaco'] *)) {
   display: flex;
   gap: 12px;
   align-items: center;
@@ -3238,13 +3242,13 @@ progress::-moz-progress-bar {
   font-size: 0.71rem;
   font-weight: 650;
 }
-.message > header time {
+.message > header time:where(:not([data-surface^='monaco'] *)) {
   color: var(--muted);
   font-size: 0.61rem;
   font-weight: 400;
   flex-shrink: 0;
 }
-.message > header > span:first-child {
+.message > header > span:first-child:where(:not([data-surface^='monaco'] *)) {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4169,7 +4173,7 @@ fieldset.form-stack {
 .composer-select-option svg {
   flex-shrink: 0;
 }
-select option {
+select option:where(:not([data-surface^='monaco'] *)) {
   background: var(--bg);
   color: var(--text);
 }
@@ -4628,11 +4632,12 @@ body:has(.settings-dialog[data-state='open']) .approval-tray {
       [type='file'],
       [type='range'],
       [type='hidden']
-    ) {
+    ):where(:not([data-surface^='monaco'] *)) {
     font-size: max(16px, 1rem);
   }
 }
 @media (prefers-reduced-motion: reduce) {
+  /* Unlike the element styles, this applies inside Monaco too. */
   *,
   *::before,
   *::after {
