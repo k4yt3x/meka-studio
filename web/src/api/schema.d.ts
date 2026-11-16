@@ -259,47 +259,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/v1/jobs': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['list_all'];
-    put?: never;
-    /** `POST /v1/jobs`: plant a job on a session. */
-    post: operations['create'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/v1/jobs/{job_id}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post?: never;
-    /**
-     * `DELETE /v1/jobs/{job_id}`: cancel a job.
-     * @description Keyed on the job id alone, as the collection names every job.
-     *
-     *     Takes the full id and 404s when nothing matches: a client holds the id whole from the listing,
-     *     and answering 204 to an id that matched nothing would report a still-firing job as canceled. A
-     *     gated job kept alive that way goes on running a shell command unattended.
-     */
-    delete: operations['cancel'];
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   '/v1/mcp': {
     parameters: {
       query?: never;
@@ -590,6 +549,47 @@ export interface paths {
     head?: never;
     /** `PATCH /v1/projects/{name}`: rename a project, moving every session and memory on it. */
     patch: operations['rename_project'];
+    trace?: never;
+  };
+  '/v1/schedules': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['list_all'];
+    put?: never;
+    /** `POST /v1/schedules`: plant a schedule on a session. */
+    post: operations['create'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/v1/schedules/{schedule_id}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post?: never;
+    /**
+     * `DELETE /v1/schedules/{schedule_id}`: cancel a schedule.
+     * @description Keyed on the schedule id alone, as the collection names every schedule.
+     *
+     *     Takes the full id and 404s when nothing matches: a client holds the id whole from the listing,
+     *     and answering 204 to an id that matched nothing would report a still-firing schedule as
+     *     canceled. A gated schedule kept alive that way goes on running a shell command unattended.
+     */
+    delete: operations['cancel'];
+    options?: never;
+    head?: never;
+    patch?: never;
     trace?: never;
   };
   '/v1/sessions': {
@@ -1113,7 +1113,7 @@ export interface components {
     };
     /**
      * @description One background task as every JSON surface reports it: the task routes, and the `_meta` of the
-     *     ACP notice that says what reported. `status` is the spelling of
+     *     ACP card that says the task reported. `status` is the spelling of
      *     [`crate::store::background::TaskStatus`].
      */
     BackgroundTaskView: {
@@ -1391,8 +1391,8 @@ export interface components {
           type: 'inbox';
         }
       | {
-          job_id: string;
           prompt: string;
+          schedule_id: string;
           text: string;
           /** @enum {string} */
           type: 'scheduled';
@@ -1583,27 +1583,6 @@ export interface components {
        */
       when?: unknown;
     };
-    CreateJobRequest: {
-      /** @description One-shot time: an RFC 3339 instant, or a duration from now (`"20m"`, `"1h 30m"`). */
-      at?: string | null;
-      /** @description 5-field cron pattern, read in `timezone`. */
-      cron?: string | null;
-      /** @description Recurring interval (`"30m"`, `"6h"`). */
-      every?: string | null;
-      gate?: components['schemas']['CreateGate'] | null;
-      /** @description What the agent is asked to do when the job fires. */
-      prompt: string;
-      /**
-       * Format: uuid
-       * @description The session the job fires in.
-       */
-      session_id: string;
-      /**
-       * @description IANA time zone a `cron` pattern is read in; the host machine's when omitted. Refused beside
-       *     `at` or `every`, which read none.
-       */
-      timezone?: string | null;
-    };
     /**
      * @description The body of `POST /v1/profiles`: `[profiles.<name>]` as it will be written. A setting left
      *     out is left out of the profile, so its documented default applies.
@@ -1636,6 +1615,27 @@ export interface components {
       thinking_budget?: number | null;
       thinking_display?: string | null;
       vision?: boolean | null;
+    };
+    CreateScheduleRequest: {
+      /** @description One-shot time: an RFC 3339 instant, or a duration from now (`"20m"`, `"1h 30m"`). */
+      at?: string | null;
+      /** @description 5-field cron pattern, read in `timezone`. */
+      cron?: string | null;
+      /** @description Recurring interval (`"30m"`, `"6h"`). */
+      every?: string | null;
+      gate?: components['schemas']['CreateGate'] | null;
+      /** @description What the agent is asked to do when the schedule fires. */
+      prompt: string;
+      /**
+       * Format: uuid
+       * @description The session the schedule fires in.
+       */
+      session_id: string;
+      /**
+       * @description IANA time zone a `cron` pattern is read in; the host machine's when omitted. Refused beside
+       *     `at` or `every`, which read none.
+       */
+      timezone?: string | null;
     };
     /**
      * @description `deny_unknown_fields` rejects typos like `permision: "read"` with 422 instead of silently
@@ -1694,7 +1694,7 @@ export interface components {
       /** @description Absolute path for the forked session. Absent → inherit the source's. */
       working_directory?: string | null;
     };
-    /** @description A job's gate: what it runs and when the result fires the job. */
+    /** @description A schedule's gate: what it runs and when the result fires the schedule. */
     GateView: {
       /**
        * @description What the gate runs: a shell command, or a tool name. Omitted when the caller may not see
@@ -1703,11 +1703,11 @@ export interface components {
        *     The HTTP API withholds it from a token that does not also hold `sessions:r`. A gate command
        *     is a `shell_execute` line that runs unattended, the highest-entropy field in the system
        *     and the one most likely to carry a credential someone pasted into a `curl`, and `GET
-       *     /v1/jobs` is server-wide, so a `schedule:r` token would otherwise read every gate on
+       *     /v1/schedules` is server-wide, so a `schedule:r` token would otherwise read every gate on
        *     the box. A tool gate is withheld on the same terms, though it discloses less either
        *     way: this carries the bare tool name, and its arguments reach only `schedule_list`. The
-       *     gate's kind and its condition stay visible, so a client can still tell a gated job from
-       *     an ungated one, and a shell gate from a tool gate, without being told what it runs.
+       *     gate's kind and its condition stay visible, so a client can still tell a gated schedule
+       *     from an ungated one, and a shell gate from a tool gate, without being told what it runs.
        */
       check?: string | null;
       /** @description `shell` or `tool`. */
@@ -1825,11 +1825,22 @@ export interface components {
       last_error?: unknown;
       /** @description When its next attempt may run, while it waits after a failed turn or a held session. */
       not_before?: string | null;
+      /**
+       * Format: int32
+       * @description How many of its schedule's occurrences the fire stands for. Absent on a message somebody
+       *     sent.
+       */
+      occurrences?: number | null;
       /** @description When Meka stops retrying it: its enqueue plus `[serve] inbox_retry_ceiling`. */
       retry_until: string;
+      /** @description The schedule whose fire this is. Absent on a message somebody sent. */
+      schedule_id?: string | null;
       /** Format: uuid */
       session_id: string;
-      /** @description Absent when the client named nobody. */
+      /**
+       * @description Who sent the message, as the client named them. Absent when the client named nobody, and on
+       *     a schedule's fire.
+       */
       source?: string | null;
       /** @description `pending`, `appended`, `delivered` or `withdrawn`. */
       state: string;
@@ -2704,39 +2715,39 @@ export interface components {
        */
       turn_id: string;
     };
-    /** @description A scheduled job: what `meka schedule list` prints and `GET /v1/jobs` answers with. */
-    ScheduledJobView: {
+    /** @description A schedule: what `meka schedule list` prints and `GET /v1/schedules` answers with. */
+    ScheduleView: {
       created_at: string;
       gate?: components['schemas']['GateView'] | null;
       id: string;
       last_fired_at?: string | null;
       next_fire_at: string;
       prompt: string;
-      /**
-       * @description Human-readable rendering of the schedule, e.g. `every 30m`, `0 9 * * 1-5 in Asia/Tokyo`,
-       *     or the instant a one-shot fires.
-       */
-      schedule: string;
       /** Format: uuid */
       session_id: string;
       /**
-       * @description The IANA zone a cron job's pattern is read in; absent for one read in the host machine's
-       *     zone, and for every other kind.
+       * @description The IANA zone a cron schedule's pattern is read in; absent for one read in the host
+       *     machine's zone, and for every other kind.
        */
       timezone?: string | null;
       /**
-       * @description Why this job will not fire on its next occurrence, when something is holding it back.
+       * @description Human-readable rendering of the timing, e.g. `every 30m`, `0 9 * * 1-5 in Asia/Tokyo`,
+       *     or the instant a one-shot fires.
+       */
+      timing: string;
+      /**
+       * @description Why this schedule will not fire on its next occurrence, when something is holding it back.
        *
-       *     Absent means it will, as far as the reader can establish. A held job and a healthy watcher
-       *     with nothing to report are otherwise identical from outside: neither fires, and
-       *     `last_fired_at` is absent for a brand-new job too. Computed per request from the session's
-       *     current level, not stored, so it tracks a `PATCH /v1/sessions/{id}` without the job being
-       *     rewritten.
+       *     Absent means it will, as far as the reader can establish. A held schedule and a healthy
+       *     watcher with nothing to report are otherwise identical from outside: neither fires, and
+       *     `last_fired_at` is absent for a brand-new schedule too. Computed per request from the
+       *     session's current level, not stored, so it tracks a `PATCH /v1/sessions/{id}` without the
+       *     schedule being rewritten.
        */
       withheld?: string | null;
     };
-    ScheduledJobsResponse: {
-      jobs: components['schemas']['ScheduledJobView'][];
+    SchedulesResponse: {
+      schedules: components['schemas']['ScheduleView'][];
     };
     /**
      * @description Per-session capabilities flags declared at create time. Defaults match the bot/bridge use
@@ -2900,6 +2911,9 @@ export interface components {
     /**
      * @description One skill in full: what `GET /v1/skills/{name}` answers with, and the core of what `meka skill
      *     get` and `show` print.
+     *
+     *     The record a client edits and writes back with `PUT`, so its `description` is the one the file
+     *     holds, verbatim: a listing's is made safe to draw, and sending that back would rewrite the file.
      */
     SkillDetail: components['schemas']['SkillView'] & {
       /**
@@ -2928,8 +2942,9 @@ export interface components {
        */
       compatibility?: string | null;
       /**
-       * @description Rendered as an index for a client to draw, not the file's bytes: the body is the surface
-       *     that is returned verbatim.
+       * @description In a listing, made safe to draw (one line, with no format or control characters), since a
+       *     listing is an index a client draws. `GET /v1/skills/{name}` and the answer of `PUT` carry
+       *     the file's own, which is what a client edits and writes back.
        */
       description: string;
       name: string;
@@ -4209,203 +4224,6 @@ export interface operations {
       };
       /** @description Invalid body */
       422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-    };
-  };
-  list_all: {
-    parameters: {
-      query?: {
-        /**
-         * @description Only the jobs planted on this session. A session with none, or an id no session has,
-         *     answers an empty list, as every listing filter does.
-         */
-        session?: string | null;
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Scheduled jobs: every session's, or one session's with `session` */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ScheduledJobsResponse'];
-        };
-      };
-      /** @description `session` is not a UUID (`/errors/invalid-body`) */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description Authorization missing or invalid */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description Insufficient scope */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-    };
-  };
-  create: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['CreateJobRequest'];
-      };
-    };
-    responses: {
-      /** @description Job created */
-      201: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ScheduledJobView'];
-        };
-      };
-      /** @description Authorization missing or invalid */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description Insufficient scope, or a session that cannot do unattended work */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description Session not found, or scheduling is disabled on this server (`[schedule] enabled = false`), so there is nowhere for a job to go */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description Request body exceeds `[serve] max_body_bytes` */
-      413: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description Invalid schedule, or the session's job limit is reached, or the id names a sub-agent's conversation, which nothing outside its parent can fire a job on (`/errors/session-not-drivable`) */
-      422: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description Internal server error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-    };
-  };
-  cancel: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        /** @description Scheduled job id */
-        job_id: string;
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description Job canceled */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description Authorization missing or invalid */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description Insufficient scope */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProblemDetail'];
-        };
-      };
-      /** @description No job has that id */
-      404: {
         headers: {
           [name: string]: unknown;
         };
@@ -6076,6 +5894,203 @@ export interface operations {
       };
       /** @description Invalid new name, or one another project has, exactly or under case folding */
       422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+    };
+  };
+  list_all: {
+    parameters: {
+      query?: {
+        /**
+         * @description Only the schedules planted on this session. A session with none, or an id no session has,
+         *     answers an empty list, as every listing filter does.
+         */
+        session?: string | null;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Schedules: every session's, or one session's with `session` */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['SchedulesResponse'];
+        };
+      };
+      /** @description `session` is not a UUID (`/errors/invalid-body`) */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description Authorization missing or invalid */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description Insufficient scope */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+    };
+  };
+  create: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['CreateScheduleRequest'];
+      };
+    };
+    responses: {
+      /** @description Schedule created */
+      201: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ScheduleView'];
+        };
+      };
+      /** @description Authorization missing or invalid */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description Insufficient scope, or a session that cannot do unattended work */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description Session not found, or scheduling is disabled on this server (`[schedule] enabled = false`), so there is nowhere for a schedule to go */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description Request body exceeds `[serve] max_body_bytes` */
+      413: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description Invalid timing, or the session's schedule limit is reached, or the id names a sub-agent's conversation, which nothing outside its parent can fire a schedule on (`/errors/session-not-drivable`) */
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description Internal server error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+    };
+  };
+  cancel: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        /** @description Schedule id */
+        schedule_id: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Schedule canceled */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Authorization missing or invalid */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description Insufficient scope */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ProblemDetail'];
+        };
+      };
+      /** @description No schedule has that id */
+      404: {
         headers: {
           [name: string]: unknown;
         };

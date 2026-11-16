@@ -20,8 +20,8 @@ export function SchedulesPage({ sessionId }: { sessionId?: string }) {
   const canRead = useCan('schedule:r');
   const canWrite = useCan('schedule:w');
   const [create, setCreate] = useState(false);
-  const query = useResource<Schema['ScheduledJobsResponse']>(
-    '/v1/jobs',
+  const query = useResource<Schema['SchedulesResponse']>(
+    '/v1/schedules',
     sessionId ? { session: sessionId } : undefined,
     canRead,
   );
@@ -47,53 +47,55 @@ export function SchedulesPage({ sessionId }: { sessionId?: string }) {
       {query.isFetching && !query.data && canRead && <Loading />}
       {!canRead && <p className="muted">Listing schedules requires schedule:r.</p>}
       <div className="stack">
-        {query.data?.jobs.map((job) => (
-          <article className="panel schedule-card" key={job.id}>
+        {query.data?.schedules.map((schedule) => (
+          <article className="panel schedule-card" key={schedule.id}>
             <header>
               <CalendarClock size={19} />
               <h2>
-                {job.schedule.startsWith('every ')
-                  ? job.schedule.replace(/(\d)(?=[a-z])/gi, '$1 ')
-                  : job.schedule}
+                {schedule.timing.startsWith('every ')
+                  ? schedule.timing.replace(/(\d)(?=[a-z])/gi, '$1 ')
+                  : schedule.timing}
               </h2>
-              {job.gate && <span className="badge">Gated</span>}
+              {schedule.gate && <span className="badge">Gated</span>}
             </header>
-            <p className="plain-text">{job.prompt}</p>
+            <p className="plain-text">{schedule.prompt}</p>
             <dl className="facts">
               <dt>Next occurrence</dt>
               <dd>
-                <Timestamp value={job.next_fire_at} />
+                <Timestamp value={schedule.next_fire_at} />
               </dd>
               <dt>Last fired</dt>
               <dd>
-                <Timestamp value={job.last_fired_at} />
+                <Timestamp value={schedule.last_fired_at} />
               </dd>
               <dt>Session</dt>
               <dd>
-                <a href={`#/sessions/${encodeURIComponent(job.session_id)}`}>{job.session_id}</a>
+                <a href={`#/sessions/${encodeURIComponent(schedule.session_id)}`}>
+                  {schedule.session_id}
+                </a>
               </dd>
             </dl>
-            {job.withheld && <p className="notice">Withheld: {job.withheld}</p>}
-            {job.gate && (
+            {schedule.withheld && <p className="notice">Withheld: {schedule.withheld}</p>}
+            {schedule.gate && (
               <div className="notice">
                 <div>
                   <strong>
-                    {job.gate.kind} gate · {job.gate.when}
+                    {schedule.gate.kind} gate · {schedule.gate.when}
                   </strong>
-                  <p>{job.gate.check ?? 'Gate details are withheld without sessions:r.'}</p>
+                  <p>{schedule.gate.check ?? 'Gate details are withheld without sessions:r.'}</p>
                 </div>
               </div>
             )}
             <details>
-              <summary>Job details</summary>
-              <Json value={job} />
+              <summary>Schedule details</summary>
+              <Json value={schedule} />
             </details>
             <ConfirmButton
               disabled={!canWrite}
               title="Cancel schedule"
-              description="Cancel future runs. A running turn will continue."
+              description="Cancel future runs and a waiting fire. A running turn continues."
               onConfirm={async () => {
-                await api?.mutate('DELETE', '/v1/jobs/' + segment(job.id));
+                await api?.mutate('DELETE', '/v1/schedules/' + segment(schedule.id));
                 await runtime.queries.invalidateQueries();
               }}
             >
@@ -102,7 +104,7 @@ export function SchedulesPage({ sessionId }: { sessionId?: string }) {
           </article>
         ))}
       </div>
-      {query.data?.jobs.length === 0 && <Empty title="Nothing scheduled" />}
+      {query.data?.schedules.length === 0 && <Empty title="Nothing scheduled" />}
       {sessionId && <div className="schedule-actions">{newSchedule}</div>}
       <Dialog open={create} onOpenChange={setCreate} title="New schedule" wide>
         {create && (
@@ -155,12 +157,12 @@ function ScheduleForm({
                 ? { at: pointer, is: condition }
                 : when,
         };
-      await api?.mutate('POST', '/v1/jobs', {
+      await api?.mutate('POST', '/v1/schedules', {
         session_id: id,
         prompt,
         ...(kind === 'at' ? { at: time } : kind === 'every' ? { every: time } : { cron: time }),
         ...(gateValue ? { gate: gateValue } : {}),
-      } satisfies Schema['CreateJobRequest']);
+      } satisfies Schema['CreateScheduleRequest']);
       onSaved();
     });
   }

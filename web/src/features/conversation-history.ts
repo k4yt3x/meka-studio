@@ -265,8 +265,8 @@ export function groupAgentMessages(messages: HistoryMessage[]) {
       !group[0].message.compaction &&
       !message.message.compaction &&
       // What Meka writes into a turn stays in it, a nudge or the report of background work
-      // behind a round's results, unless a steer rides it and so speaks for someone. Context and
-      // a scheduled fire only open a turn.
+      // behind a round's results, unless a steer or a schedule's fire rides it and so speaks for
+      // someone. Context only opens a turn.
       (message.message.role === 'assistant' ||
         (message.message.role === 'user' &&
           message.blocks.length > 0 &&
@@ -286,7 +286,7 @@ export function groupAgentMessages(messages: HistoryMessage[]) {
 /**
  * What the messages say, as written: their text with the files attached among it by name, the
  * words a model refused in, the inbox items someone sent, the words sent with a skill or an MCP
- * prompt, and a scheduled job's words, without thinking, tools, or what Meka wrote around them.
+ * prompt, and a schedule's words, without thinking, tools, or what Meka wrote around them.
  */
 export function messageText(messages: readonly ConversationMessage[]) {
   return messages

@@ -4,7 +4,7 @@
     "title": "Meka HTTP API",
     "description": "Service-to-service API for driving Meka agent turns programmatically. Mirrors the wire format described in the HTTP API docs. A field that has no value is omitted from every response and event, never sent as `null`.",
     "license": { "name": "AGPL-3.0-or-later" },
-    "version": "0.94.0"
+    "version": "0.95.0"
   },
   "paths": {
     "/v1/accounts": {
@@ -799,157 +799,6 @@
           }
         },
         "security": [{ "bearerAuth": ["config:w"] }]
-      }
-    },
-    "/v1/jobs": {
-      "get": {
-        "tags": ["schedule"],
-        "operationId": "list_all",
-        "parameters": [
-          {
-            "name": "session",
-            "in": "query",
-            "description": "Only the jobs planted on this session. A session with none, or an id no session has,\nanswers an empty list, as every listing filter does.",
-            "required": false,
-            "schema": { "type": ["string", "null"], "format": "uuid" }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Scheduled jobs: every session's, or one session's with `session`",
-            "content": {
-              "application/json": {
-                "schema": { "$ref": "#/components/schemas/ScheduledJobsResponse" }
-              }
-            }
-          },
-          "400": {
-            "description": "`session` is not a UUID (`/errors/invalid-body`)",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "401": {
-            "description": "Authorization missing or invalid",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "403": {
-            "description": "Insufficient scope",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          }
-        },
-        "security": [{ "bearerAuth": ["schedule:r"] }]
-      },
-      "post": {
-        "tags": ["schedule"],
-        "summary": "`POST /v1/jobs`: plant a job on a session.",
-        "operationId": "create",
-        "requestBody": {
-          "content": {
-            "application/json": { "schema": { "$ref": "#/components/schemas/CreateJobRequest" } }
-          },
-          "required": true
-        },
-        "responses": {
-          "201": {
-            "description": "Job created",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduledJobView" } }
-            }
-          },
-          "401": {
-            "description": "Authorization missing or invalid",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "403": {
-            "description": "Insufficient scope, or a session that cannot do unattended work",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "404": {
-            "description": "Session not found, or scheduling is disabled on this server (`[schedule] enabled = false`), so there is nowhere for a job to go",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "413": {
-            "description": "Request body exceeds `[serve] max_body_bytes`",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "422": {
-            "description": "Invalid schedule, or the session's job limit is reached, or the id names a sub-agent's conversation, which nothing outside its parent can fire a job on (`/errors/session-not-drivable`)",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          }
-        },
-        "security": [{ "bearerAuth": ["schedule:w"] }]
-      }
-    },
-    "/v1/jobs/{job_id}": {
-      "delete": {
-        "tags": ["schedule"],
-        "summary": "`DELETE /v1/jobs/{job_id}`: cancel a job.",
-        "description": "Keyed on the job id alone, as the collection names every job.\n\nTakes the full id and 404s when nothing matches: a client holds the id whole from the listing,\nand answering 204 to an id that matched nothing would report a still-firing job as canceled. A\ngated job kept alive that way goes on running a shell command unattended.",
-        "operationId": "cancel",
-        "parameters": [
-          {
-            "name": "job_id",
-            "in": "path",
-            "description": "Scheduled job id",
-            "required": true,
-            "schema": { "type": "string" }
-          }
-        ],
-        "responses": {
-          "204": { "description": "Job canceled" },
-          "401": {
-            "description": "Authorization missing or invalid",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "403": {
-            "description": "Insufficient scope",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "404": {
-            "description": "No job has that id",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          },
-          "500": {
-            "description": "Internal server error",
-            "content": {
-              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
-            }
-          }
-        },
-        "security": [{ "bearerAuth": ["schedule:w"] }]
       }
     },
     "/v1/mcp": {
@@ -2323,6 +2172,157 @@
           }
         },
         "security": [{ "bearerAuth": ["memory:w"] }]
+      }
+    },
+    "/v1/schedules": {
+      "get": {
+        "tags": ["schedule"],
+        "operationId": "list_all",
+        "parameters": [
+          {
+            "name": "session",
+            "in": "query",
+            "description": "Only the schedules planted on this session. A session with none, or an id no session has,\nanswers an empty list, as every listing filter does.",
+            "required": false,
+            "schema": { "type": ["string", "null"], "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Schedules: every session's, or one session's with `session`",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/SchedulesResponse" } }
+            }
+          },
+          "400": {
+            "description": "`session` is not a UUID (`/errors/invalid-body`)",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "401": {
+            "description": "Authorization missing or invalid",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          }
+        },
+        "security": [{ "bearerAuth": ["schedule:r"] }]
+      },
+      "post": {
+        "tags": ["schedule"],
+        "summary": "`POST /v1/schedules`: plant a schedule on a session.",
+        "operationId": "create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateScheduleRequest" }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Schedule created",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleView" } }
+            }
+          },
+          "401": {
+            "description": "Authorization missing or invalid",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope, or a session that cannot do unattended work",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "404": {
+            "description": "Session not found, or scheduling is disabled on this server (`[schedule] enabled = false`), so there is nowhere for a schedule to go",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "413": {
+            "description": "Request body exceeds `[serve] max_body_bytes`",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "422": {
+            "description": "Invalid timing, or the session's schedule limit is reached, or the id names a sub-agent's conversation, which nothing outside its parent can fire a schedule on (`/errors/session-not-drivable`)",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          }
+        },
+        "security": [{ "bearerAuth": ["schedule:w"] }]
+      }
+    },
+    "/v1/schedules/{schedule_id}": {
+      "delete": {
+        "tags": ["schedule"],
+        "summary": "`DELETE /v1/schedules/{schedule_id}`: cancel a schedule.",
+        "description": "Keyed on the schedule id alone, as the collection names every schedule.\n\nTakes the full id and 404s when nothing matches: a client holds the id whole from the listing,\nand answering 204 to an id that matched nothing would report a still-firing schedule as\ncanceled. A gated schedule kept alive that way goes on running a shell command unattended.",
+        "operationId": "cancel",
+        "parameters": [
+          {
+            "name": "schedule_id",
+            "in": "path",
+            "description": "Schedule id",
+            "required": true,
+            "schema": { "type": "string" }
+          }
+        ],
+        "responses": {
+          "204": { "description": "Schedule canceled" },
+          "401": {
+            "description": "Authorization missing or invalid",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "403": {
+            "description": "Insufficient scope",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "404": {
+            "description": "No schedule has that id",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": { "schema": { "$ref": "#/components/schemas/ProblemDetail" } }
+            }
+          }
+        },
+        "security": [{ "bearerAuth": ["schedule:w"] }]
       }
     },
     "/v1/sessions": {
@@ -4302,7 +4302,7 @@
       },
       "BackgroundTaskView": {
         "type": "object",
-        "description": "One background task as every JSON surface reports it: the task routes, and the `_meta` of the\nACP notice that says what reported. `status` is the spelling of\n[`crate::store::background::TaskStatus`].",
+        "description": "One background task as every JSON surface reports it: the task routes, and the `_meta` of the\nACP card that says the task reported. `status` is the spelling of\n[`crate::store::background::TaskStatus`].",
         "required": ["id", "session_id", "tool", "label", "status", "started_at"],
         "properties": {
           "announced_at": {
@@ -4648,11 +4648,11 @@
           },
           {
             "type": "object",
-            "description": "A scheduled job's fire the model read: `text` as it read it, `prompt` the job's words,\n`job_id` the job. Typed so a client shows it as a fire rather than as words a person typed.",
-            "required": ["job_id", "prompt", "text", "type"],
+            "description": "A schedule's fire the model read: `text` as it read it, `prompt` the schedule's words,\n`schedule_id` the schedule. Typed so a client shows it as a fire rather than as words a\nperson typed.",
+            "required": ["schedule_id", "prompt", "text", "type"],
             "properties": {
-              "job_id": { "type": "string" },
               "prompt": { "type": "string" },
+              "schedule_id": { "type": "string" },
               "text": { "type": "string" },
               "type": { "type": "string", "enum": ["scheduled"] }
             }
@@ -4924,47 +4924,6 @@
         },
         "additionalProperties": false
       },
-      "CreateJobRequest": {
-        "type": "object",
-        "required": ["session_id", "prompt"],
-        "properties": {
-          "at": {
-            "type": ["string", "null"],
-            "description": "One-shot time: an RFC 3339 instant, or a duration from now (`\"20m\"`, `\"1h 30m\"`)."
-          },
-          "cron": {
-            "type": ["string", "null"],
-            "description": "5-field cron pattern, read in `timezone`."
-          },
-          "every": {
-            "type": ["string", "null"],
-            "description": "Recurring interval (`\"30m\"`, `\"6h\"`)."
-          },
-          "gate": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/CreateGate",
-                "description": "Guard the job on a probe: a shell command, or a call to a read-only tool.\n\nThe level required depends on which. A shell command runs unattended and with no sandbox,\nso it needs `unrestricted` and no level that promises a boundary can honestly authorize it.\nA tool probe needs only what the tool itself resolves to, which a gate requires to be\n`read`."
-              },
-              { "type": "null" }
-            ]
-          },
-          "prompt": {
-            "type": "string",
-            "description": "What the agent is asked to do when the job fires."
-          },
-          "session_id": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The session the job fires in."
-          },
-          "timezone": {
-            "type": ["string", "null"],
-            "description": "IANA time zone a `cron` pattern is read in; the host machine's when omitted. Refused beside\n`at` or `every`, which read none."
-          }
-        },
-        "additionalProperties": false
-      },
       "CreateProfileRequest": {
         "type": "object",
         "description": "The body of `POST /v1/profiles`: `[profiles.<name>]` as it will be written. A setting left\nout is left out of the profile, so its documented default applies.",
@@ -5002,6 +4961,47 @@
           "thinking_budget": { "type": ["integer", "null"], "format": "int64", "minimum": 0 },
           "thinking_display": { "type": ["string", "null"] },
           "vision": { "type": ["boolean", "null"] }
+        },
+        "additionalProperties": false
+      },
+      "CreateScheduleRequest": {
+        "type": "object",
+        "required": ["session_id", "prompt"],
+        "properties": {
+          "at": {
+            "type": ["string", "null"],
+            "description": "One-shot time: an RFC 3339 instant, or a duration from now (`\"20m\"`, `\"1h 30m\"`)."
+          },
+          "cron": {
+            "type": ["string", "null"],
+            "description": "5-field cron pattern, read in `timezone`."
+          },
+          "every": {
+            "type": ["string", "null"],
+            "description": "Recurring interval (`\"30m\"`, `\"6h\"`)."
+          },
+          "gate": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/CreateGate",
+                "description": "Guard the schedule on a probe: a shell command, or a call to a read-only tool.\n\nThe level required depends on which. A shell command runs unattended and with no sandbox,\nso it needs `unrestricted` and no level that promises a boundary can honestly authorize it.\nA tool probe needs only what the tool itself resolves to, which a gate requires to be\n`read`."
+              },
+              { "type": "null" }
+            ]
+          },
+          "prompt": {
+            "type": "string",
+            "description": "What the agent is asked to do when the schedule fires."
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The session the schedule fires in."
+          },
+          "timezone": {
+            "type": ["string", "null"],
+            "description": "IANA time zone a `cron` pattern is read in; the host machine's when omitted. Refused beside\n`at` or `every`, which read none."
+          }
         },
         "additionalProperties": false
       },
@@ -5069,12 +5069,12 @@
       },
       "GateView": {
         "type": "object",
-        "description": "A job's gate: what it runs and when the result fires the job.",
+        "description": "A schedule's gate: what it runs and when the result fires the schedule.",
         "required": ["kind", "when"],
         "properties": {
           "check": {
             "type": ["string", "null"],
-            "description": "What the gate runs: a shell command, or a tool name. Omitted when the caller may not see\nit.\n\nThe HTTP API withholds it from a token that does not also hold `sessions:r`. A gate command\nis a `shell_execute` line that runs unattended, the highest-entropy field in the system\nand the one most likely to carry a credential someone pasted into a `curl`, and `GET\n/v1/jobs` is server-wide, so a `schedule:r` token would otherwise read every gate on\nthe box. A tool gate is withheld on the same terms, though it discloses less either\nway: this carries the bare tool name, and its arguments reach only `schedule_list`. The\ngate's kind and its condition stay visible, so a client can still tell a gated job from\nan ungated one, and a shell gate from a tool gate, without being told what it runs."
+            "description": "What the gate runs: a shell command, or a tool name. Omitted when the caller may not see\nit.\n\nThe HTTP API withholds it from a token that does not also hold `sessions:r`. A gate command\nis a `shell_execute` line that runs unattended, the highest-entropy field in the system\nand the one most likely to carry a credential someone pasted into a `curl`, and `GET\n/v1/schedules` is server-wide, so a `schedule:r` token would otherwise read every gate on\nthe box. A tool gate is withheld on the same terms, though it discloses less either\nway: this carries the bare tool name, and its arguments reach only `schedule_list`. The\ngate's kind and its condition stay visible, so a client can still tell a gated schedule\nfrom an ungated one, and a shell gate from a tool gate, without being told what it runs."
           },
           "kind": { "type": "string", "description": "`shell` or `tool`." },
           "when": {
@@ -5267,14 +5267,24 @@
             "type": ["string", "null"],
             "description": "When its next attempt may run, while it waits after a failed turn or a held session."
           },
+          "occurrences": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "description": "How many of its schedule's occurrences the fire stands for. Absent on a message somebody\nsent.",
+            "minimum": 0
+          },
           "retry_until": {
             "type": "string",
             "description": "When Meka stops retrying it: its enqueue plus `[serve] inbox_retry_ceiling`."
           },
+          "schedule_id": {
+            "type": ["string", "null"],
+            "description": "The schedule whose fire this is. Absent on a message somebody sent."
+          },
           "session_id": { "type": "string", "format": "uuid" },
           "source": {
             "type": ["string", "null"],
-            "description": "Absent when the client named nobody."
+            "description": "Who sent the message, as the client named them. Absent when the client named nobody, and on\na schedule's fire."
           },
           "state": {
             "type": "string",
@@ -6342,17 +6352,17 @@
         },
         "additionalProperties": false
       },
-      "ScheduledJobView": {
+      "ScheduleView": {
         "type": "object",
-        "description": "A scheduled job: what `meka schedule list` prints and `GET /v1/jobs` answers with.",
-        "required": ["id", "session_id", "schedule", "prompt", "created_at", "next_fire_at"],
+        "description": "A schedule: what `meka schedule list` prints and `GET /v1/schedules` answers with.",
+        "required": ["id", "session_id", "timing", "prompt", "created_at", "next_fire_at"],
         "properties": {
           "created_at": { "type": "string" },
           "gate": {
             "oneOf": [
               {
                 "$ref": "#/components/schemas/GateView",
-                "description": "Present when the job is gated, on a shell command or a tool call."
+                "description": "Present when the schedule is gated, on a shell command or a tool call."
               },
               { "type": "null" }
             ]
@@ -6361,26 +6371,26 @@
           "last_fired_at": { "type": ["string", "null"] },
           "next_fire_at": { "type": "string" },
           "prompt": { "type": "string" },
-          "schedule": {
-            "type": "string",
-            "description": "Human-readable rendering of the schedule, e.g. `every 30m`, `0 9 * * 1-5 in Asia/Tokyo`,\nor the instant a one-shot fires."
-          },
           "session_id": { "type": "string", "format": "uuid" },
           "timezone": {
             "type": ["string", "null"],
-            "description": "The IANA zone a cron job's pattern is read in; absent for one read in the host machine's\nzone, and for every other kind."
+            "description": "The IANA zone a cron schedule's pattern is read in; absent for one read in the host\nmachine's zone, and for every other kind."
+          },
+          "timing": {
+            "type": "string",
+            "description": "Human-readable rendering of the timing, e.g. `every 30m`, `0 9 * * 1-5 in Asia/Tokyo`,\nor the instant a one-shot fires."
           },
           "withheld": {
             "type": ["string", "null"],
-            "description": "Why this job will not fire on its next occurrence, when something is holding it back.\n\nAbsent means it will, as far as the reader can establish. A held job and a healthy watcher\nwith nothing to report are otherwise identical from outside: neither fires, and\n`last_fired_at` is absent for a brand-new job too. Computed per request from the session's\ncurrent level, not stored, so it tracks a `PATCH /v1/sessions/{id}` without the job being\nrewritten."
+            "description": "Why this schedule will not fire on its next occurrence, when something is holding it back.\n\nAbsent means it will, as far as the reader can establish. A held schedule and a healthy\nwatcher with nothing to report are otherwise identical from outside: neither fires, and\n`last_fired_at` is absent for a brand-new schedule too. Computed per request from the\nsession's current level, not stored, so it tracks a `PATCH /v1/sessions/{id}` without the\nschedule being rewritten."
           }
         }
       },
-      "ScheduledJobsResponse": {
+      "SchedulesResponse": {
         "type": "object",
-        "required": ["jobs"],
+        "required": ["schedules"],
         "properties": {
-          "jobs": { "type": "array", "items": { "$ref": "#/components/schemas/ScheduledJobView" } }
+          "schedules": { "type": "array", "items": { "$ref": "#/components/schemas/ScheduleView" } }
         }
       },
       "SessionCapabilities": {
@@ -6542,7 +6552,7 @@
             }
           }
         ],
-        "description": "One skill in full: what `GET /v1/skills/{name}` answers with, and the core of what `meka skill\nget` and `show` print."
+        "description": "One skill in full: what `GET /v1/skills/{name}` answers with, and the core of what `meka skill\nget` and `show` print.\n\nThe record a client edits and writes back with `PUT`, so its `description` is the one the file\nholds, verbatim: a listing's is made safe to draw, and sending that back would rewrite the file."
       },
       "SkillView": {
         "type": "object",
@@ -6556,7 +6566,7 @@
           },
           "description": {
             "type": "string",
-            "description": "Rendered as an index for a client to draw, not the file's bytes: the body is the surface\nthat is returned verbatim."
+            "description": "In a listing, made safe to draw (one line, with no format or control characters), since a\nlisting is an index a client draws. `GET /v1/skills/{name}` and the answer of `PUT` carry\nthe file's own, which is what a client edits and writes back."
           },
           "name": { "type": "string" },
           "priority": {
@@ -6967,7 +6977,7 @@
       "name": "conversation",
       "description": "Compaction, rewind, context occupancy, export / import"
     },
-    { "name": "schedule", "description": "Scheduled jobs" },
+    { "name": "schedule", "description": "Schedules" },
     { "name": "tasks", "description": "Background tasks" },
     { "name": "skills", "description": "Skill store CRUD" },
     { "name": "memory", "description": "Memory store CRUD" },

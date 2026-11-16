@@ -165,6 +165,8 @@ interface Entry {
   notifiedTurns: Set<string>;
   /** Turns the inbox opened, with the items they opened on, whose failed attempts Meka may retry. */
   inboxTurns: Map<string, string[]>;
+  /** Inbox items that are schedules' fires rather than someone's messages. */
+  fires: Set<string>;
   /** Turns whose opening this feed has announced. */
   openings: Set<string>;
   /** The turn Meka runs a compaction as, which is compacting from start to end. */
@@ -485,11 +487,11 @@ export class SessionController {
     }, 1000);
   }
   private withNotice(entry: Entry, event: string, data: EventData) {
-    const notice = sessionNotice(event, data);
+    const notice = sessionNotice(event, data, entry.fires.has(string(data, 'item_id')));
     const notices = entry.state.notices;
     if (!notice) return notices;
-    // A terminal belongs to one explicit turn, and a give-up to one queued message, even if the
-    // server replays it again.
+    // A terminal belongs to one explicit turn, and a give-up to one queued message or fire, even if
+    // the server replays it again.
     const subject = notice.turnId ?? notice.itemId;
     if (
       notice.event !== 'notice' &&
@@ -575,6 +577,7 @@ export class SessionController {
       notificationTurns: entry?.notificationTurns ?? new Set(),
       notifiedTurns: entry?.notifiedTurns ?? new Set(),
       inboxTurns: entry?.inboxTurns ?? new Map(),
+      fires: entry?.fires ?? new Set(),
       openings: entry?.openings ?? new Set(),
       notificationsSince: entry?.notificationsSince ?? Infinity,
       abort: new AbortController(),
@@ -773,6 +776,13 @@ export class SessionController {
       });
       return;
     }
+    if (frame.event === 'schedule.fired') {
+      // A fire waits in the inbox, under a new id when it joined one still waiting; reading the
+      // queue again shows it.
+      this.rememberFires(entry, [data.item_id]);
+      this.invalidated(entry.state.id);
+      return;
+    }
     const turnId = string(data, 'turn_id');
     // A turn's record can settle it before the attending feed's replay. Its saved snapshot
     // supersedes those old deltas; replay must not reopen work or duplicate the saved answer.
@@ -782,14 +792,13 @@ export class SessionController {
       // Finishing a compaction is not the agent finishing work, so it does not notify.
       const compacting = string(data, 'source') === 'compaction';
       entry.compactionTurn = compacting ? turnId : undefined;
-      if (string(data, 'source') === 'inbox') {
-        const items = Array.isArray(data.item_ids) ? data.item_ids : [];
-        entry.inboxTurns.set(
-          turnId,
-          items.filter((item): item is string => typeof item === 'string'),
-        );
+      // The inbox opens a turn on its items, a schedule's fire among them, and names them.
+      if (Array.isArray(data.item_ids)) {
+        const items = data.item_ids.filter((item): item is string => typeof item === 'string');
+        entry.inboxTurns.set(turnId, items);
         if (entry.inboxTurns.size > 50)
           entry.inboxTurns.delete(entry.inboxTurns.keys().next().value!);
+        if (string(data, 'source') === 'schedule') this.rememberFires(entry, items);
       }
       if (
         !compacting &&
@@ -1112,14 +1121,19 @@ export class SessionController {
         if (entry.deliveries.size > 200)
           entry.deliveries.delete(entry.deliveries.keys().next().value!);
       }
-      // Giving up is news its failed attempts were not: a notice, and for this tab's own
-      // message, the notification its turn would have made.
+      // Giving up is news its failed attempts were not: a notice, and the notification its turn
+      // would have made, for this tab's own message or a turn it followed.
       const gaveUp = frame.event === 'inbox.failed';
-      if (gaveUp && state.submissions.some((s) => s.itemId && ids.includes(s.itemId))) {
+      if (gaveUp) {
         const opened = [...entry.inboxTurns]
           .reverse()
           .find(([, items]) => items.some((item) => ids.includes(item)))?.[0];
-        if (opened) this.notifyCompletion(entry, opened, 'failed');
+        if (
+          opened &&
+          (state.submissions.some((s) => s.itemId && ids.includes(s.itemId)) ||
+            entry.notificationTurns.has(opened))
+        )
+          this.notifyCompletion(entry, opened, 'failed');
       }
       this.publish(entry, {
         ...(gaveUp ? { notices: this.withNotice(entry, frame.event, data) } : {}),
@@ -1152,9 +1166,10 @@ export class SessionController {
       event === 'turn.finished' ? 'completed' : event === 'turn.failed' ? 'failed' : 'canceled';
     const state = entry.state;
     // An inbox turn that ended before the model answered gives its items back to run again, or
-    // gives them up; their queued messages say which, so each attempt is not news of its own.
+    // gives them up; the queue says which, so each attempt is not news of its own.
     const attempt = data.message_withdrawn === true && entry.inboxTurns.has(turnId);
-    const followed = entry.notificationTurns.delete(turnId);
+    // An attempt stays followed until Meka says whether it gave its items up.
+    const followed = !attempt && entry.notificationTurns.delete(turnId);
     const notify =
       !attempt &&
       (followed ||
@@ -1204,6 +1219,10 @@ export class SessionController {
       this.invalidated(state.id);
       this.release(entry);
     });
+  }
+  private rememberFires(entry: Entry, items: unknown[]) {
+    for (const item of items) if (typeof item === 'string') entry.fires.add(item);
+    while (entry.fires.size > 200) entry.fires.delete(entry.fires.values().next().value!);
   }
   private followCompletion(entry: Entry, turnId: string) {
     entry.notificationTurns.add(turnId);
@@ -1908,9 +1927,11 @@ export class SessionController {
     if (sent && submission.kind === 'turn' && current) void this.settleTurns(current);
     return sent;
   }
-  async withdrawInbox(id: string, itemId: string) {
+  /** Takes back a queued message, or a schedule's `fire`, which the errors name as such. */
+  async withdrawInbox(id: string, itemId: string, fire = false) {
+    const what = fire ? 'fire' : 'message';
     if (this.disposed || !this.canWrite)
-      throw new Error('Withdrawing a message requires an active connection with sessions:w.');
+      throw new Error(`Withdrawing a ${what} requires an active connection with sessions:w.`);
     const entry = this.entries.get(id);
     if (entry?.state.session?.parent_id)
       throw new Error('Sub-agent sessions are controlled by their parent.');
@@ -1925,13 +1946,13 @@ export class SessionController {
       }
       // A missing/consumed item is not proof that this request withdrew it.
       if (error instanceof ApiError && error.status === 409 && error.is('inbox-appended'))
-        throw new Error('This message already reached the conversation and cannot be withdrawn.', {
+        throw new Error(`This ${what} already reached the conversation and cannot be withdrawn.`, {
           cause: error,
         });
       if (error instanceof ApiError && error.status === 404) {
         if (this.entries.get(id)?.deliveries.get(itemId)?.state === 'withdrawn') return;
         throw new Error(
-          'This queued message is no longer available. Check the saved conversation.',
+          `This queued ${what} is no longer available. Check the saved conversation.`,
           { cause: error },
         );
       }

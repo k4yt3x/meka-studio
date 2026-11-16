@@ -9,7 +9,7 @@ export interface EventPayloads {
     // 0.68 runs `POST /compact` as a turn with `source: "compaction"`.
     source?: 'client' | 'inbox' | 'schedule' | 'background' | 'compaction' | 'parent';
     item_ids?: string[];
-    job_id?: string;
+    schedule_ids?: string[];
   };
   // `profile` names the fallback profile that served the turn, when the session's own could not.
   // `position` is the conversation's as the turn ends, omitted on a sub-agent's feed.
@@ -93,6 +93,13 @@ export interface EventPayloads {
     error?: Schema['ProblemDetail'];
   };
   'inbox.withdrawn': Correlation & { item_id: string };
+  // 0.95 queues a schedule's fire as an inbox item, joining a waiting one as a new item.
+  'schedule.fired': Correlation & {
+    schedule_id: string;
+    item_id: string;
+    occurrences?: number;
+    replaces?: string;
+  };
   'session.updated': Schema['SessionResponse'];
   // The `rewind` item as the history lists it.
   'conversation.rewound': { session_id?: string } & Extract<

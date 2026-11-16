@@ -1,8 +1,8 @@
 # API schema maintenance
 
-`meka-0.94.0.json` was captured from Meka `0.94.0`, commit `cbbb23d63e815a4300ce107fcbec82457f2c93c9`, through `/v1/openapi.json` with `[serve].docs = true`. The generated REST types are committed in `web/src/api/schema.d.ts`; runtime connections do not require schema access.
+`meka-0.95.0.json` was captured from Meka `0.95.0`, commit `9c804c6ce7217b18580af3a8a18051c10c707a41`, through `/v1/openapi.json` with `[serve].docs = true`. The generated REST types are committed in `web/src/api/schema.d.ts`; runtime connections do not require schema access.
 
-Meka Studio requires Meka 0.93.0 or newer and refuses older servers when it connects. Compared with 0.68.0, the 0.70.0 and 0.71.0 APIs change these shapes the client used:
+Meka Studio requires Meka 0.95.0 or newer and refuses older servers when it connects. Compared with 0.68.0, the 0.70.0 and 0.71.0 APIs change these shapes the client used:
 
 - `/v1/info` no longer reports `vision`; each `/v1/profiles` entry does.
 - `/v1/sessions/{id}/context` no longer reports `used_percent`. The client divides `used` by `window`, rounding down as Meka did.
@@ -141,16 +141,27 @@ Meka Studio requires Meka 0.93.0 or newer and refuses older servers when it conn
 - An emergency compaction's note says the provider rejected the request, where it said refused.
 - The export archive is format 28, and 0.94.0 reads a 0.93 archive as it is.
 
-A shell command may print 64 MiB, all of which `tool_call.completed` carries, while the saved result stays a bounded preview. The SSE parser therefore skips data past 2,000,000 characters and keeps the frame's id, so a reconnect cannot replay it. A skipped tool completion keeps its call, outcome, and correlation from the ends of its JSON, and other skipped events become a notice.
+0.95.0 changes these, and the client therefore requires it:
+
+- Scheduled jobs are schedules. `/v1/jobs` is `/v1/schedules`, whose listing is `schedules`, a schedule's `schedule` is its `timing`, and a `scheduled` block names its `schedule_id` where it named `job_id`; Meka renames stored history on upgrade. The old routes answer `404`. The conversation says a fire as Meka's screen does: `Schedule <id> fired: <prompt>`.
+- A schedule fires when it is due, whatever its session is doing, and its fire waits in the session's inbox as a `steer` item, which the listing names by `schedule_id` and the `occurrences` it stands for, with no `source`. The session feed's `schedule.fired` names the item, so the client reads the queue again and shows a waiting fire as its schedule's, which can be withdrawn. An occurrence that comes due while the fire waits joins it under a new id, which `replaces` names. A running turn reads a fire at its next pause, behind the round's results, and the conversation shows it there once the history holds it, as it shows another client's steer.
+- A turn opened on fires alone has `source: "schedule"` and names its `item_ids` and `schedule_ids`. A fire is retried as any inbox item is, so the client takes every turn that names `item_ids` for an inbox turn: an attempt Meka will try again makes no notice, and giving a fire up is said once, as a fire's, with the notification its turn would have made.
+- `tool_call.completed` carries a result as the history holds it: an output over 30,000 bytes is a `large_output` item, which the client already draws.
+- `session.created` and `session.updated` carry the record `GET /v1/sessions/{id}` answers, which is how the client already reads them.
+- A turn that ends because a subscription account must sign in again is a `422` `invalid-body` naming the login route in its `detail`, as one on an account with no credential is. The client shows it as any failed turn.
+- An import takes this installation's level and approvals, and leaves out a directory the archive names that is not one here. The client sends the archive as it is.
+- The export archive is format 30, and 0.95.0 brings an archive of format 3 or later forward on import.
+
+`tool_call.completed` still carries `change`, the whole text a file, memory, or skill change left before and after, which can run to megabytes. The SSE parser therefore skips data past 2,000,000 characters and keeps the frame's id, so a reconnect cannot replay it. A skipped tool completion keeps its call, outcome, and correlation from the ends of its JSON, and other skipped events become a notice.
 
 The feed's 409 covers `session-not-loaded`: a token with only `sessions:r` does not load a session by attaching. The client then shows the saved conversation and retries the feed until the server loads the session. `POST /compact` runs as a turn on the feed, with `source: "compaction"` on `turn.started`; the client shows it as compacting and does not notify when it ends.
 
-Schema capture is a manual maintenance step. Choose a disposable Meka instance with `[serve].docs = true`, confirm its version, and download its schema. For a 0.94.0 instance listening on port 8081:
+Schema capture is a manual maintenance step. Choose a disposable Meka instance with `[serve].docs = true`, confirm its version, and download its schema. For a 0.95.0 instance listening on port 8081:
 
 ```sh
-curl --fail --silent --show-error http://127.0.0.1:8081/v1/openapi.json --output docs/api/meka-0.94.0.json
+curl --fail --silent --show-error http://127.0.0.1:8081/v1/openapi.json --output docs/api/meka-0.95.0.json
 cd web
-npx prettier --write ../docs/api/meka-0.94.0.json
+npx prettier --write ../docs/api/meka-0.95.0.json
 npm run api:generate
 ```
 

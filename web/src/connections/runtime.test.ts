@@ -6,7 +6,7 @@ import { ConnectionRuntime } from './runtime';
 import { BrowserStorage } from './storage';
 
 const info: Schema['InfoResponse'] = {
-  version: '0.93.0',
+  version: '0.95.0',
   default_permission: 'read',
   enabled_permissions: ['read'],
   scopes: ['sessions:r', 'sessions:w'],
@@ -101,10 +101,10 @@ it('stays signed in and says why while Meka is unavailable', async () => {
 it('refuses a Meka older than the release supports', async () => {
   const { runtime } = fixture({
     ...signedIn,
-    'GET /meka/v1/info': () => Response.json({ ...info, version: '0.92.0' }),
+    'GET /meka/v1/info': () => Response.json({ ...info, version: '0.94.0' }),
   });
   await runtime.check();
-  expect(runtime.getSnapshot().error).toMatch(/Meka 0\.92\.0.*0\.93\.0 or newer/);
+  expect(runtime.getSnapshot().error).toMatch(/Meka 0\.94\.0.*0\.95\.0 or newer/);
 });
 
 it('goes back to signing in when Meka Studio says the sign-in ended', async () => {

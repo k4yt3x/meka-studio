@@ -7,7 +7,7 @@ export interface SessionNotice {
   level: 'info' | 'warning' | 'error';
   text: string;
   turnId?: string;
-  /** The queued message a notice is about. */
+  /** The queued message or fire a notice is about. */
   itemId?: string;
   /** A later turn started, so the notice no longer says where the conversation stands. */
   superseded?: boolean;
@@ -15,9 +15,11 @@ export interface SessionNotice {
   dismissed?: boolean;
 }
 
+/** What an event says below the conversation; `fire` when an inbox event's item is a fire. */
 export function sessionNotice(
   event: string,
   data: EventData,
+  fire = false,
 ): Omit<SessionNotice, 'id'> | undefined {
   const turnId = string(data, 'turn_id');
   const correlation = turnId ? { turnId } : {};
@@ -36,10 +38,11 @@ export function sessionNotice(
     // Its failed attempts made no notice, since Meka might have run it again.
     const why = problemText(data.error) || string(data, 'reason').trim();
     const itemId = string(data, 'item_id');
+    const item = fire ? 'a schedule’s fire' : 'a queued message';
     return {
       event,
       level: 'error',
-      text: `Meka gave up on a queued message${why ? `: ${why}` : '.'}`,
+      text: `Meka gave up on ${item}${why ? `: ${why}` : '.'}`,
       ...(itemId ? { itemId } : {}),
     };
   }

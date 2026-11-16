@@ -777,9 +777,9 @@ it('keeps a background report in the turn it reached, and shows what Meka relaye
   const context: Schema['ContentBlockView'] = { type: 'turn_context', text: 'Context.' };
   const fire: Schema['ContentBlockView'] = {
     type: 'scheduled',
-    job_id: '1a2b3c4d',
+    schedule_id: '1a2b3c4d',
     prompt: 'Stretch.',
-    text: '[Scheduled job 1a2b3c4d fired now]\n\nStretch.',
+    text: '[Schedule 1a2b3c4d fired 2026-11-16 03:54 +00:00]\n\nStretch.',
   };
   const input = [
     { ...message('user', { type: 'text', text: 'Build it.' }), turn_id: 'turn-1' },
@@ -792,6 +792,10 @@ it('keeps a background report in the turn it reached, and shows what Meka relaye
     { ...message('assistant', { type: 'text', text: 'Stretched.' }), turn_id: 'turn-2' },
     { ...message('user', context, report), turn_id: 'turn-3' },
     { ...message('assistant', { type: 'text', text: 'Noted.' }), turn_id: 'turn-3' },
+    { ...message('user', { type: 'text', text: 'Wait.' }), turn_id: 'turn-4' },
+    { ...message('assistant', call('c')), turn_id: 'turn-4' },
+    { ...message('user', result('c'), fire), turn_id: 'turn-4' },
+    { ...message('assistant', { type: 'text', text: 'Waited.' }), turn_id: 'turn-4' },
   ];
   const groups = groupAgentMessages(groupToolResults(input).messages);
   expect(groups.map((group) => group.map((row) => row.index))).toEqual([
@@ -803,6 +807,11 @@ it('keeps a background report in the turn it reached, and shows what Meka relaye
     [7],
     [8],
     [9],
+    [10],
+    [11],
+    // A fire read behind a round's results speaks for its schedule, as a steer does.
+    [12],
+    [13],
   ]);
   // A steer is someone's words, which a fire or a report alone are not.
   expect(input.map(isInput)).toEqual([
@@ -816,8 +825,12 @@ it('keeps a background report in the turn it reached, and shows what Meka relaye
     false,
     false,
     false,
+    true,
+    false,
+    false,
+    false,
   ]);
-  // A fire's words are the job's, copied and sent again as a message's would be.
+  // A fire's words are the schedule's, copied and sent again as a message's would be.
   expect(messageText([input[4]!, input[6]!, input[8]!])).toBe('Check the logs too.\n\nStretch.');
   expect(resendable(input[4]!)).toEqual({ text: 'Check the logs too.', skill: '', images: [] });
   expect(resendable(input[6]!)).toEqual({ text: 'Stretch.', skill: '', images: [] });

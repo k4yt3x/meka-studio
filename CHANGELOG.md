@@ -10,14 +10,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - A link to a file in the conversation or a Markdown preview opens it in the editor, at its line.
+- A schedule's fire that waits for the agent shows in the queue, where it can be withdrawn.
 
 ### Changed
 
+- **Breaking:** Meka Studio requires Meka 0.95.0 or newer.
 - A session's row gives its title the whole width; pointing at it shows when it last changed.
+- A schedule's fire reads "Schedule 1a2b3c4d fired", as on Meka's screen.
+- A failing schedule's fire is reported once, when Meka gives it up, not after every attempt.
+- Meka giving up on another client's queued message notifies, as its turn would have.
 
 ### Fixed
 
 - The editor's find and replace box and command palette no longer take on the page's styles.
+- With Meka 0.95.0, a session holding a schedule's fire opens instead of an error page.
+- With Meka 0.95.0, Schedules lists, adds and cancels schedules again.
 
 ## [0.42.0] - 2026-11-12
 

@@ -1,6 +1,6 @@
 import type { Schema } from '../api/client';
 
-// Meka 0.94.0: src/conversation.rs::CompactionRecord::note, the line its screen shows.
+// Meka 0.95.0: src/conversation.rs::CompactionRecord::note, the line its screen shows.
 const triggers: Readonly<Record<string, string>> = {
   reactive: 'Autocompacted the conversation after context usage crossed the ceiling.',
   proactive: 'Autocompacted the conversation ahead of a turn that would have crossed the ceiling.',

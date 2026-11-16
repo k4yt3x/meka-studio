@@ -64,7 +64,8 @@ async function fixture(
   vi.spyOn(api, 'stream').mockResolvedValue(
     new Response(body, { headers: { 'Content-Type': 'text/event-stream' } }),
   );
-  const controller = new SessionController(api, canWrite);
+  const invalidated = vi.fn();
+  const controller = new SessionController(api, canWrite, invalidated);
   controllers.push(controller);
   controller.select('s');
   await vi.waitFor(() => expect(controller.getSnapshot()[0]?.saved).toBeDefined());
@@ -85,6 +86,7 @@ async function fixture(
     session,
     history,
     inbox,
+    invalidated,
     closeFeed: () => writer.close(),
     state: () => controller.getSnapshot()[0]!,
   };
@@ -132,7 +134,10 @@ it.each<[string, Schema['ContentBlockView']]>([
     'an inbox item',
     { type: 'inbox', class: 'followup', body: 'Queued', text: '[Message]\nQueued' },
   ],
-  ['a scheduled fire', { type: 'scheduled', job_id: 'job', prompt: 'Stretch', text: 'Stretch' }],
+  [
+    'a schedule’s fire',
+    { type: 'scheduled', schedule_id: 'schedule', prompt: 'Stretch', text: 'Stretch' },
+  ],
   ['a background report', { type: 'background_report', task_ids: ['task'], text: 'Done' }],
 ])('shows a turn that %s opens, once announced as a notice', async (_, block) => {
   const f = await fixture();
@@ -1722,6 +1727,57 @@ it('says why Meka gave up on a queued message, from a replay or a bare reason', 
   ]);
   await f.event('inbox.failed', { item_id: 'other', reason: 'retried for an hour' }, true);
   expect(f.state().notices).toHaveLength(1);
+});
+
+it('reads the queue again on a schedule’s fire, and knows the item for a fire', async () => {
+  const f = await fixture();
+  f.invalidated.mockClear();
+  await f.event('schedule.fired', {
+    schedule_id: 'schedule',
+    session_id: 's',
+    item_id: 'fire',
+    occurrences: 2,
+    replaces: 'earlier',
+    turn_id: 'running',
+  });
+  expect(f.invalidated).toHaveBeenCalledWith('s');
+  await f.event('inbox.failed', { item_id: 'fire', reason: 'retried for an hour' });
+  expect(f.state().notices.map((notice) => notice.text)).toEqual([
+    'Meka gave up on a schedule’s fire: retried for an hour',
+  ]);
+});
+
+it('reports a schedule’s fire Meka retries once, when Meka gives it up', async () => {
+  const f = await fixture();
+  const completed = vi.fn();
+  f.controller.onCompletion(completed);
+  const started_at = new Date(Date.now() + 1000).toISOString();
+  const opened = { source: 'schedule', item_ids: ['fire'], schedule_ids: ['schedule'], started_at };
+  // A turn opened on fires alone says so, for a tab that attached after the fire was queued.
+  // An attempt Meka tries again is not news of its own.
+  await f.event('turn.started', { turn_id: 'first', ...opened });
+  await f.event('turn.failed', {
+    turn_id: 'first',
+    message_withdrawn: true,
+    error: { detail: 'Provider unavailable.' },
+  });
+  await f.event('inbox.deferred', { item_ids: ['fire'], not_before: '2026-09-17T00:05:00Z' });
+  expect(f.state().notices).toEqual([]);
+  expect(completed).not.toHaveBeenCalled();
+  // Giving it up is said once, as a fire's, with the notification its turn would have made.
+  await f.event('turn.started', { turn_id: 'second', ...opened });
+  await f.event('turn.failed', {
+    turn_id: 'second',
+    message_withdrawn: true,
+    error: { detail: 'Provider rejected it.' },
+  });
+  await f.event('inbox.failed', { item_id: 'fire', error: { detail: 'Provider rejected it.' } });
+  expect(f.state().notices.map((notice) => notice.text)).toEqual([
+    'Meka gave up on a schedule’s fire: Provider rejected it.',
+  ]);
+  expect(completed).toHaveBeenCalledExactlyOnceWith(
+    expect.objectContaining({ turnId: 'second', outcome: 'failed' }),
+  );
 });
 
 it('retries uncertain inbox submissions with the same body and key', async () => {

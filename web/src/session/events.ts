@@ -4,8 +4,8 @@ export interface SseFrame {
   data: string;
   id?: string;
 }
-// Past this a frame's data is not held: Meka 0.66 sends a shell command's whole output, up to
-// 64 MiB, in `tool_call.completed`, while its saved result is a bounded preview.
+// Past this a frame's data is not held: `tool_call.completed` carries `change`, the whole text a
+// changed file held before and after, which can run to megabytes.
 const MAX_FRAME = 2_000_000;
 const KEPT_HEAD = 4096;
 const KEPT_TAIL = 2048;
@@ -241,6 +241,7 @@ const required: Record<keyof EventPayloads, string[]> = {
   'inbox.deferred': [],
   'inbox.failed': ['item_id'],
   'inbox.withdrawn': ['item_id'],
+  'schedule.fired': ['schedule_id', 'item_id'],
   'session.updated': ['id', 'updated_at'],
   'conversation.rewound': [],
   'turn.nudged': ['kind', 'text'],
@@ -303,6 +304,7 @@ export function parseEvent(
     'turns',
     'used',
     'window',
+    'occurrences',
   ])
     if (
       key in value &&

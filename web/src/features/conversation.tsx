@@ -852,7 +852,7 @@ function Nudge({ kind, text }: { kind: string; text: string }) {
     </details>
   );
 }
-/** Meka's short form of a task or job id, as its own screen says it. */
+/** Meka's short form of a task or schedule id, as its own screen says it. */
 const shortId = (id: string) => id.slice(0, 8);
 /** Background work that finished, reported to the agent by Meka rather than written by anyone. */
 function BackgroundReport({ tasks, text }: { tasks: readonly string[]; text: string }) {
@@ -869,12 +869,20 @@ function BackgroundReport({ tasks, text }: { tasks: readonly string[]; text: str
     </details>
   );
 }
-/** A scheduled job's fire, which Meka wrote in the job's name rather than anyone typing it. */
-function ScheduledFire({ job, prompt, text }: { job: string; prompt: string; text: string }) {
+/** A schedule's fire, which Meka wrote in the schedule's name rather than anyone typing it. */
+function ScheduledFire({
+  schedule,
+  prompt,
+  text,
+}: {
+  schedule: string;
+  prompt: string;
+  text: string;
+}) {
   return (
     <details className="injected scheduled-fire">
       <summary>
-        Scheduled job {shortId(job)} fired: {prompt.replace(/\s+/g, ' ').trim()}
+        Schedule {shortId(schedule)} fired: {prompt.replace(/\s+/g, ' ').trim()}
       </summary>
       <pre className="plain-text">{text}</pre>
     </details>
@@ -1107,8 +1115,8 @@ function turnKind(group: HistoryMessage[]) {
   const message = group[0]?.message;
   if (!message || message.compaction) return;
   if (message.role === 'assistant') return 'reply';
-  // A scheduled fire opens its turn with the job's words, which Meka wrote but which are copied,
-  // edited, and deleted like a message's.
+  // A schedule's fire carries the schedule's words, which Meka wrote but which are copied, edited,
+  // and deleted like a message's.
   if (isInput(message) || message.content.some((block) => block.type === 'scheduled'))
     return 'input';
 }
@@ -1404,27 +1412,39 @@ function InboxMessage({
   canWithdraw: boolean;
   onError: (error: unknown) => void;
 }) {
+  // The listing carries no words, so a fire is named by its schedule and the occurrences it
+  // stands for.
+  const occurrences = item.occurrences ?? 1;
   return (
     <article className="message message-user message-input">
       <MessageHeader
-        author={item.source || 'Queued message'}
+        author={
+          item.schedule_id
+            ? `Schedule ${shortId(item.schedule_id)}`
+            : item.source || 'Queued message'
+        }
         createdAt={item.created_at}
         status="Queued"
         actions={
           <WithdrawMessage
             sessionId={sessionId}
             itemId={item.id}
+            fire={Boolean(item.schedule_id)}
             disabled={!canWithdraw}
             onError={onError}
           />
         }
       />
-      <p className="muted">Queued message · text unavailable</p>
+      <p className="muted">
+        {item.schedule_id
+          ? `Fire waiting to be read${occurrences > 1 ? ` · ${occurrences} occurrences` : ''}`
+          : 'Queued message · text unavailable'}
+      </p>
       <InboxRetry item={item} />
     </article>
   );
 }
-/** Why Meka holds a queued message back after its turn failed, and when it runs it again. */
+/** Why Meka holds a queued message or fire back after its turn failed, and when it tries again. */
 function InboxRetry({ item }: { item: Schema['InboxItemView'] | undefined }) {
   // A session another process holds sets a time too, with no error: nothing failed then.
   const problem = problemText(item?.last_error);
@@ -1442,11 +1462,14 @@ function InboxRetry({ item }: { item: Schema['InboxItemView'] | undefined }) {
 function WithdrawMessage({
   sessionId,
   itemId,
+  fire = false,
   disabled,
   onError,
 }: {
   sessionId: string;
   itemId: string;
+  /** A schedule's fire rather than someone's message. */
+  fire?: boolean;
   disabled: boolean;
   onError: (error: unknown) => void;
 }) {
@@ -1459,7 +1482,9 @@ function WithdrawMessage({
       variant="ghost"
       tone="danger"
       disabled={disabled || action.busy}
-      onClick={() => void action.run(async () => controller?.withdrawInbox(sessionId, itemId))}
+      onClick={() =>
+        void action.run(async () => controller?.withdrawInbox(sessionId, itemId, fire))
+      }
     >
       Withdraw
     </Button>
@@ -1505,7 +1530,7 @@ function ContentBlock({
         </>
       );
     case 'scheduled':
-      return <ScheduledFire job={block.job_id} prompt={block.prompt} text={block.text} />;
+      return <ScheduledFire schedule={block.schedule_id} prompt={block.prompt} text={block.text} />;
     case 'background_report':
       return <BackgroundReport tasks={block.task_ids} text={block.text} />;
     case 'redacted_thinking':
