@@ -1,4 +1,3 @@
-import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Pencil, Pin, PinOff } from 'lucide-react';
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import type { Schema } from '../api/client';
@@ -7,13 +6,17 @@ import { useAction } from '../components/actions';
 import { ErrorNotice, Field } from '../components/common';
 import { Button } from '../components/ui/button';
 import { Dialog } from '../components/ui/dialog';
+import type { MenuParts } from '../components/ui/menu';
 
+/** Renaming and pinning a session, in its header's menu or its row's. */
 export function SessionMetadataItems({
+  menu: { Item, Separator },
   session,
   disabled,
   onRename,
   onPin,
 }: {
+  menu: MenuParts;
   session: Schema['SessionResponse'];
   disabled: boolean;
   onRename: () => void;
@@ -23,14 +26,14 @@ export function SessionMetadataItems({
   const unavailable = disabled || !canWrite || Boolean(session.parent_id);
   return (
     <>
-      <DropdownMenu.Item className="menu-item" disabled={unavailable} onSelect={onRename}>
+      <Item className="menu-item" disabled={unavailable} onSelect={onRename}>
         <Pencil size={14} /> Rename session
-      </DropdownMenu.Item>
-      <DropdownMenu.Item className="menu-item" disabled={unavailable} onSelect={onPin}>
+      </Item>
+      <Item className="menu-item" disabled={unavailable} onSelect={onPin}>
         {session.pinned_at ? <PinOff size={14} /> : <Pin size={14} />}
         {session.pinned_at ? 'Unpin session' : 'Pin session'}
-      </DropdownMenu.Item>
-      <DropdownMenu.Separator className="menu-separator" />
+      </Item>
+      <Separator className="menu-separator" />
     </>
   );
 }

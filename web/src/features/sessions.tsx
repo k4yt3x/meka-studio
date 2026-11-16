@@ -948,6 +948,7 @@ function SessionActions({
             }}
           >
             <SessionMetadataItems
+              menu={DropdownMenu}
               session={session}
               disabled={action.busy || deleting}
               onRename={() => openAction('rename')}

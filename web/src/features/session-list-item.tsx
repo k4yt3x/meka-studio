@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import * as ContextMenu from '@radix-ui/react-context-menu';
 import {
   ChevronRight,
   FolderKanban,
@@ -13,7 +14,8 @@ import { useCan, useConnection, useRuntime } from '../connections/context';
 import { useAction } from '../components/actions';
 import { ErrorNotice } from '../components/common';
 import { Button } from '../components/ui/button';
-import { SessionDeleteDialog, SessionRenameDialog } from './session-metadata';
+import { useOverlayPadding } from '../components/visual-viewport';
+import { SessionDeleteDialog, SessionMetadataItems, SessionRenameDialog } from './session-metadata';
 import { editorStore, saveFirst } from '../editor/use-editor';
 import { formatWhen } from '../session/turn-summary';
 import type { SessionStatus } from '../session/unread';
@@ -107,6 +109,14 @@ export function SessionListItem({
   const action = useAction();
   const pinAction = useAction();
   const busy = action.busy || pinAction.busy;
+  const collisionPadding = useOverlayPadding();
+  // A dialog chosen from the row's menu takes the focus the menu would give back.
+  const dialogIntent = useRef(false);
+  // A touch or pen press under way, and whether its long press opened the menu. Its end must not
+  // open the session, nor, as the mouse events a touch screen makes of it, take the focus from the
+  // menu, which closes it.
+  const pressing = useRef(false);
+  const pressOpened = useRef(false);
   const title = session.title || 'New conversation';
   // What the row leaves out, its pointer shows, with its state, as pointing swaps that out.
   const about = [session.profile, session.project, session.parent_id ? 'sub-agent' : undefined]
@@ -130,6 +140,31 @@ export function SessionListItem({
       pinTrigger.current?.focus();
   }, [pinFocus, onPinFocus, pinAction.busy, session.pinned_at]);
 
+  function togglePin(keyboard: boolean) {
+    action.reset();
+    onPinFocus(keyboard ? { pinned: !session.pinned_at } : undefined);
+    void pinAction
+      .run(async () => {
+        const moved = await controller?.patchSettings(session.id, {
+          pinned: !session.pinned_at,
+        });
+        if (keyboard && moved) onPinFocus({ pinned: Boolean(moved.pinned_at), moved });
+        return moved;
+      })
+      .then((moved) => {
+        if (keyboard && !moved) onPinFocus(undefined);
+      });
+  }
+  function openRename() {
+    action.reset();
+    pinAction.reset();
+    setRename(true);
+  }
+  function openDelete() {
+    action.reset();
+    pinAction.reset();
+    setConfirm(true);
+  }
   function remove() {
     const source = trigger.current;
     const row = source?.closest('.session-list-entry');
@@ -190,153 +225,198 @@ export function SessionListItem({
           />
         ) : null,
       )}
-      <div
-        className={`session-item ${selected ? 'selected' : ''} ${editable ? 'session-item-editable' : ''}`}
-        data-busy={busy || undefined}
+      <ContextMenu.Root
+        modal={false}
+        onOpenChange={(open) => {
+          if (open && pressing.current) pressOpened.current = true;
+        }}
       >
-        <a
-          className="session-item-link"
-          href={`#/sessions/${encodeURIComponent(session.id)}`}
-          aria-current={selected ? 'page' : undefined}
-          title={tooltip}
-          onClick={(event) => {
-            if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) onOpen();
-          }}
-        >
-          <div className="session-item-title">
-            <StatusDot status={status} />
-            <strong
-              className={
-                ['failed', 'completed', 'unread'].includes(status) ? 'session-unread' : undefined
-              }
-            >
-              {title}
-            </strong>
-            {session.pinned_at && (
-              <Pin className="session-item-pin" size={11} aria-label="Pinned" />
-            )}
-          </div>
-          {(excerpt || project) && (
-            <p className="session-excerpt">
-              {project && (
-                <span className="session-item-project">
-                  <FolderKanban size={11} aria-label="Project" />
-                  {project}
-                </span>
-              )}
-              {excerpt}
-            </p>
-          )}
-        </a>
-        {subagents && (
-          <button
-            type="button"
-            className="session-twisty"
-            aria-label={`Sub-agents of session: ${title}`}
-            aria-expanded={subagents.shown}
-            aria-busy={subagents.loading}
-            data-found={subagents.found || undefined}
-            title={
-              !subagents.shown
-                ? 'Show sub-agents'
-                : subagents.loading
-                  ? 'Loading sub-agents…'
-                  : subagents.found
-                    ? 'Hide sub-agents'
-                    : 'No sub-agents'
-            }
-            onClick={subagents.onToggle}
-          >
-            <ChevronRight size={11} strokeWidth={2.5} aria-hidden="true" />
-          </button>
-        )}
-        <div
-          className="session-row-actions"
-          role="group"
-          aria-label={`Actions for session: ${title}`}
-        >
-          {editable && (
-            <>
-              <Button
-                ref={renameTrigger}
-                variant="ghost"
-                size="icon"
-                aria-label={`Rename session: ${title}`}
-                aria-haspopup="dialog"
-                title="Rename session"
-                disabled={busy}
-                onClick={() => {
-                  action.reset();
-                  pinAction.reset();
-                  setRename(true);
-                }}
-              >
-                <Pencil size={15} />
-              </Button>
-              <Button
-                ref={pinTrigger}
-                variant="ghost"
-                size="icon"
-                className={session.pinned_at ? 'session-pin-active' : undefined}
-                aria-label={`${session.pinned_at ? 'Unpin' : 'Pin'} session: ${title}`}
-                aria-busy={pinAction.busy}
-                title={session.pinned_at ? 'Unpin session' : 'Pin session'}
-                disabled={busy}
-                onClick={(event) => {
-                  action.reset();
-                  const keyboard = event.detail === 0;
-                  onPinFocus(keyboard ? { pinned: !session.pinned_at } : undefined);
-                  void pinAction
-                    .run(async () => {
-                      const moved = await controller?.patchSettings(session.id, {
-                        pinned: !session.pinned_at,
-                      });
-                      if (keyboard && moved)
-                        onPinFocus({ pinned: Boolean(moved.pinned_at), moved });
-                      return moved;
-                    })
-                    .then((moved) => {
-                      if (keyboard && !moved) onPinFocus(undefined);
-                    });
-                }}
-              >
-                {pinAction.busy ? (
-                  <LoaderCircle size={15} className="spin" />
-                ) : session.pinned_at ? (
-                  <PinOff size={15} />
-                ) : (
-                  <Pin size={15} />
-                )}
-              </Button>
-            </>
-          )}
-          <Button
-            ref={trigger}
-            variant="ghost"
-            size="icon"
-            className="session-delete"
-            aria-label={`Delete session: ${title}`}
-            aria-haspopup="dialog"
-            aria-busy={action.busy}
-            disabled={!canWrite || running || busy}
-            title={
-              !canWrite
-                ? 'Requires sessions:w'
-                : running
-                  ? 'Stop the current turn before deleting'
-                  : 'Delete session (Shift-click skips confirmation)'
-            }
-            onClick={(event) => {
-              action.reset();
-              pinAction.reset();
-              if (event.shiftKey) remove();
-              else setConfirm(true);
+        {/* A right click, or a long press on a touch screen, opens the row's menu. */}
+        <ContextMenu.Trigger asChild disabled={!canWrite}>
+          <div
+            className={`session-item ${selected ? 'selected' : ''} ${editable ? 'session-item-editable' : ''}`}
+            data-busy={busy || undefined}
+            onPointerDown={(event) => {
+              pressing.current = event.pointerType !== 'mouse';
+              pressOpened.current = false;
+            }}
+            onPointerUp={() => {
+              pressing.current = false;
+            }}
+            onPointerCancel={() => {
+              pressing.current = false;
+            }}
+            onTouchEnd={(event) => {
+              if (pressOpened.current) event.preventDefault();
+            }}
+            onClickCapture={(event) => {
+              // A key's click comes with no press, so it is never the end of one.
+              if (!pressOpened.current || event.detail === 0) return;
+              pressOpened.current = false;
+              event.preventDefault();
+              event.stopPropagation();
             }}
           >
-            {action.busy ? <LoaderCircle size={15} className="spin" /> : <Trash2 size={15} />}
-          </Button>
-        </div>
-      </div>
+            <a
+              className="session-item-link"
+              href={`#/sessions/${encodeURIComponent(session.id)}`}
+              aria-current={selected ? 'page' : undefined}
+              title={tooltip}
+              onClick={(event) => {
+                if (!event.ctrlKey && !event.metaKey && !event.altKey && !event.shiftKey) onOpen();
+              }}
+            >
+              <div className="session-item-title">
+                <StatusDot status={status} />
+                <strong
+                  className={
+                    ['failed', 'completed', 'unread'].includes(status)
+                      ? 'session-unread'
+                      : undefined
+                  }
+                >
+                  {title}
+                </strong>
+                {session.pinned_at && (
+                  <Pin className="session-item-pin" size={11} aria-label="Pinned" />
+                )}
+              </div>
+              {(excerpt || project) && (
+                <p className="session-excerpt">
+                  {project && (
+                    <span className="session-item-project">
+                      <FolderKanban size={11} aria-label="Project" />
+                      {project}
+                    </span>
+                  )}
+                  {excerpt}
+                </p>
+              )}
+            </a>
+            {subagents && (
+              <button
+                type="button"
+                className="session-twisty"
+                aria-label={`Sub-agents of session: ${title}`}
+                aria-expanded={subagents.shown}
+                aria-busy={subagents.loading}
+                data-found={subagents.found || undefined}
+                title={
+                  !subagents.shown
+                    ? 'Show sub-agents'
+                    : subagents.loading
+                      ? 'Loading sub-agents…'
+                      : subagents.found
+                        ? 'Hide sub-agents'
+                        : 'No sub-agents'
+                }
+                onClick={subagents.onToggle}
+              >
+                <ChevronRight size={11} strokeWidth={2.5} aria-hidden="true" />
+              </button>
+            )}
+            <div
+              className="session-row-actions"
+              role="group"
+              aria-label={`Actions for session: ${title}`}
+            >
+              {editable && (
+                <>
+                  <Button
+                    ref={renameTrigger}
+                    variant="ghost"
+                    size="icon"
+                    aria-label={`Rename session: ${title}`}
+                    aria-haspopup="dialog"
+                    title="Rename session"
+                    disabled={busy}
+                    onClick={openRename}
+                  >
+                    <Pencil size={15} />
+                  </Button>
+                  <Button
+                    ref={pinTrigger}
+                    variant="ghost"
+                    size="icon"
+                    className={session.pinned_at ? 'session-pin-active' : undefined}
+                    aria-label={`${session.pinned_at ? 'Unpin' : 'Pin'} session: ${title}`}
+                    aria-busy={pinAction.busy}
+                    title={session.pinned_at ? 'Unpin session' : 'Pin session'}
+                    disabled={busy}
+                    onClick={(event) => togglePin(event.detail === 0)}
+                  >
+                    {pinAction.busy ? (
+                      <LoaderCircle size={15} className="spin" />
+                    ) : session.pinned_at ? (
+                      <PinOff size={15} />
+                    ) : (
+                      <Pin size={15} />
+                    )}
+                  </Button>
+                </>
+              )}
+              <Button
+                ref={trigger}
+                variant="ghost"
+                size="icon"
+                className="session-delete"
+                aria-label={`Delete session: ${title}`}
+                aria-haspopup="dialog"
+                aria-busy={action.busy}
+                disabled={!canWrite || running || busy}
+                title={
+                  !canWrite
+                    ? 'Requires sessions:w'
+                    : running
+                      ? 'Stop the current turn before deleting'
+                      : 'Delete session (Shift-click skips confirmation)'
+                }
+                onClick={(event) => {
+                  if (event.shiftKey) {
+                    action.reset();
+                    pinAction.reset();
+                    remove();
+                  } else openDelete();
+                }}
+              >
+                {action.busy ? <LoaderCircle size={15} className="spin" /> : <Trash2 size={15} />}
+              </Button>
+            </div>
+          </div>
+        </ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content
+            className="menu-panel"
+            collisionPadding={collisionPadding}
+            onCloseAutoFocus={(event) => {
+              if (!dialogIntent.current) return;
+              dialogIntent.current = false;
+              event.preventDefault();
+            }}
+          >
+            <SessionMetadataItems
+              menu={ContextMenu}
+              session={session}
+              disabled={busy}
+              onRename={() => {
+                dialogIntent.current = true;
+                openRename();
+              }}
+              onPin={() => togglePin(false)}
+            />
+            <ContextMenu.Item
+              className="menu-item menu-item-danger"
+              disabled={running || busy}
+              onSelect={() => {
+                dialogIntent.current = true;
+                openDelete();
+              }}
+            >
+              Delete session
+            </ContextMenu.Item>
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
       {!confirm && <ErrorNotice error={action.error ?? pinAction.error} />}
       {rename && (
         <SessionRenameDialog

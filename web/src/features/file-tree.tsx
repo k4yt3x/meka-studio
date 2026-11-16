@@ -13,6 +13,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ChevronRight, MoreHorizontal, RotateCw } from 'lucide-react';
 import { errorMessage } from '../api/client';
 import { Button } from '../components/ui/button';
+import type { MenuParts } from '../components/ui/menu';
 import { useMediaQuery } from '../components/media-query';
 import { useOverlayPadding } from '../components/visual-viewport';
 import { useDarkTheme } from '../components/theme';
@@ -21,9 +22,6 @@ import { fileIconName, folderIconName, iconUrl } from '../files/icons';
 import { findByName, type Row } from '../files/tree-model';
 import { LETTERS, markWords, type GitMark } from '../files/git';
 import { formatSize, within } from '../files/paths';
-
-/** The parts menu items are made of, a dropdown menu's or a context menu's. */
-export type MenuParts = Pick<typeof DropdownMenu, 'Item' | 'Separator'>;
 
 type EntryRow = Extract<Row, { kind: 'entry' }>;
 

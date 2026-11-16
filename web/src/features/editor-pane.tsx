@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Dialog } from '../components/ui/dialog';
+import type { MenuParts } from '../components/ui/menu';
 import { useAction } from '../components/actions';
 import { ErrorNotice, Field, Loading } from '../components/common';
 import { Markdown } from '../components/markdown';
@@ -43,8 +44,6 @@ import { CompareSurface, EditorSurface } from '../editor/surface';
 import { terminalOf, terminalTab, type EditorStore, type OpenFile } from '../editor/store';
 import { isProblem, type Gateway, type GatewayClient } from '../api/gateway';
 import { TerminalView } from './terminal-view';
-
-type MenuParts = Pick<typeof DropdownMenu, 'Item' | 'Separator'>;
 
 /**
  * The files and terminals open in a place, such as a session: a tab for each, and the one shown

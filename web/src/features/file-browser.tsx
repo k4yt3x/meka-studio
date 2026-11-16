@@ -49,6 +49,7 @@ import { FILES_FONT } from '../connections/storage';
 import { useAction } from '../components/actions';
 import { Button } from '../components/ui/button';
 import { Dialog } from '../components/ui/dialog';
+import type { MenuParts } from '../components/ui/menu';
 import { ErrorNotice, Field, Loading } from '../components/common';
 import { copyText } from '../components/clipboard';
 import { scrollRegion } from '../components/scrolling';
@@ -84,7 +85,7 @@ import {
 } from '../files/tree-model';
 import { useSessionNavigation } from './session-navigation';
 import { mentionPath, useWorkspace } from '../components/workspace';
-import { DRAGGED_PATHS, FileTree, type Choosing, type MenuParts } from './file-tree';
+import { DRAGGED_PATHS, FileTree, type Choosing } from './file-tree';
 
 type Entry = Gateway['Entry'];
 type Listing = Gateway['Listing'];

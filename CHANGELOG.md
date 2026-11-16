@@ -7,15 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.43.0] - 2026-11-16
+
 ### Added
 
 - A link to a file in the conversation or a Markdown preview opens it in the editor, at its line.
 - A schedule's fire that waits for the agent shows in the queue, where it can be withdrawn.
+- A right click on a session, or a long press on a touch screen, opens a menu of its actions.
 
 ### Changed
 
 - **Breaking:** Meka Studio requires Meka 0.95.0 or newer.
 - A session's row gives its title the whole width; pointing at it shows when it last changed.
+- On a touch screen, a session's row is one line, with its buttons in that menu instead.
+- In a narrow window with a mouse, a session's buttons show when pointing at it, as in a wide one.
+- On a phone or in a narrow pane, your messages and the message box run edge to edge, square.
 - A schedule's fire reads "Schedule 1a2b3c4d fired", as on Meka's screen.
 - A failing schedule's fire is reported once, when Meka gives it up, not after every attempt.
 - Meka giving up on another client's queued message notifies, as its turn would have.
@@ -788,7 +794,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Light and dark themes, narrow layouts, and collapsible, resizable session panels.
 - Hosting at the root or a subpath, with GitHub Pages deployment on version tags.
 
-[Unreleased]: https://github.com/k4yt3x/meka-studio/compare/0.42.0...HEAD
+[Unreleased]: https://github.com/k4yt3x/meka-studio/compare/0.43.0...HEAD
+[0.43.0]: https://github.com/k4yt3x/meka-studio/compare/0.42.0...0.43.0
 [0.42.0]: https://github.com/k4yt3x/meka-studio/compare/0.41.0...0.42.0
 [0.41.0]: https://github.com/k4yt3x/meka-studio/compare/0.40.0...0.41.0
 [0.40.0]: https://github.com/k4yt3x/meka-studio/compare/0.39.0...0.40.0
