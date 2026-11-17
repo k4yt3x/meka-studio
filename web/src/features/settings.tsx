@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import {
   useCan,
   useConnection,
+  useDesktopApp,
   useGateway,
   useResource,
   useRuntime,
@@ -29,6 +30,13 @@ import { appleKeyboard } from '../components/shortcut-keys';
 import { SettingsLink } from '../components/settings-link';
 import { NotificationSettings } from '../notifications/settings';
 import { AccountSettings } from './account';
+import {
+  DesktopAppSettings,
+  MekaProcessFacts,
+  OpenLogsButton,
+  RestartMekaButton,
+  UpdateNotice,
+} from './desktop';
 
 /** A section of Settings: its heading, with `actions` beside it, over its groups. */
 function SectionPage({
@@ -53,10 +61,14 @@ function SectionPage({
   );
 }
 
-/** How Meka Studio behaves: what a conversation shows, and the data this device uses. */
+/**
+ * How Meka Studio behaves: what a conversation shows, the data this device uses, and in the desktop
+ * app the app's own settings.
+ */
 export function GeneralSettings() {
   const settings = useSettings();
   const runtime = useRuntime();
+  const desktopApp = useDesktopApp();
   return (
     <SectionPage title="General">
       <section className="panel">
@@ -88,6 +100,7 @@ export function GeneralSettings() {
         />
         <p className="muted small">Fewer messages, pictures on tap, and batched replies.</p>
       </section>
+      {desktopApp && <DesktopAppSettings />}
     </SectionPage>
   );
 }
@@ -281,6 +294,7 @@ export function AboutSettings() {
   const ready = useResource<Schema['ReadyResponse']>('/v1/health/ready');
   const config = useResource<Schema['ConfigResponse']>('/v1/config', undefined, useCan('config:r'));
   const canConfigure = useCan('config:w');
+  const desktopApp = useDesktopApp();
   const edited = config.data?.config_changed;
   const reload = useAction();
   const [reloaded, setReloaded] = useState<string>();
@@ -302,6 +316,7 @@ export function AboutSettings() {
               </>
             )}
           </dd>
+          {desktopApp && <MekaProcessFacts />}
           <dt>Meka version</dt>
           <dd>
             {meka?.version ?? state.info?.version}
@@ -320,7 +335,10 @@ export function AboutSettings() {
             )}
           </dd>
           <dt>Meka Studio version</dt>
-          <dd>{status.data?.version ?? __MEKA_STUDIO_VERSION__}</dd>
+          <dd>
+            {status.data?.version ?? __MEKA_STUDIO_VERSION__}
+            {desktopApp && <UpdateNotice />}
+          </dd>
           <dt>Liveness</dt>
           <dd>{live.isPending ? 'Checking…' : (live.data?.status ?? 'Unavailable')}</dd>
           <dt>Readiness</dt>
@@ -420,6 +438,8 @@ export function AboutSettings() {
             <RefreshCw size={16} className={action.busy ? 'spin' : undefined} />
             Check now
           </Button>
+          {desktopApp && <RestartMekaButton />}
+          {desktopApp && <OpenLogsButton />}
           {canConfigure && (
             <Button
               variant={edited ? 'default' : 'secondary'}

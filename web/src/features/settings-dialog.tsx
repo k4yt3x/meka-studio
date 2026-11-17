@@ -25,15 +25,22 @@ import {
   InstructionsSettings,
   NotificationsSection,
 } from './settings';
-import { useConnection } from '../connections/context';
+import { useConnection, useDesktopApp } from '../connections/context';
 
 /**
  * The sections: Meka Studio's own first, then how Meka is set up, the keys, and what is running.
- * The standing instructions are read with `sessions:r`, as Meka asks.
+ * The standing instructions are read with `sessions:r`, as Meka asks; the desktop app's window has
+ * no account to manage.
  */
-const SECTIONS: { id: SettingsSection; name: string; icon: LucideIcon; scope?: string }[] = [
+const SECTIONS: {
+  id: SettingsSection;
+  name: string;
+  icon: LucideIcon;
+  scope?: string;
+  browser?: boolean;
+}[] = [
   { id: 'general', name: 'General', icon: Settings },
-  { id: 'account', name: 'Account', icon: UserRound },
+  { id: 'account', name: 'Account', icon: UserRound, browser: true },
   { id: 'appearance', name: 'Appearance', icon: Palette },
   { id: 'notifications', name: 'Notifications', icon: Bell },
   { id: 'providers', name: 'Providers', icon: BrainCircuit },
@@ -91,7 +98,10 @@ export function SettingsDialog({
   onClose: () => void;
 }) {
   const { info } = useConnection();
-  const sections = SECTIONS.filter((each) => !each.scope || info?.scopes.includes(each.scope));
+  const desktopApp = useDesktopApp();
+  const sections = SECTIONS.filter(
+    (each) => (!each.scope || info?.scopes.includes(each.scope)) && !(desktopApp && each.browser),
+  );
   const shown = sections.find((each) => each.id === section) ?? sections[0]!;
   return (
     <Dialog

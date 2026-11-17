@@ -1,6 +1,9 @@
 # Meka Studio build helpers. The interface is compiled into the binary, so every build builds web/
 # first.
 
+# The suffix of an executable here.
+exe := if os() == "windows" { ".exe" } else { "" }
+
 # List recipes.
 default:
     @just --list
@@ -11,13 +14,28 @@ web:
 
 # Build the release binary, with the interface, into target/release/meka-studio.
 build: web
-    cargo build --release --locked
+    cargo build --release --locked -p meka-studio
 
 # Needs musl-tools (musl-gcc) for the bundled OpenSSL and SQLite, and the target:
 # rustup target add x86_64-unknown-linux-musl
 # Build a static binary for any Linux, into target/x86_64-unknown-linux-musl/release/meka-studio.
 build-static: web
-    cargo build --release --locked --target x86_64-unknown-linux-musl
+    cargo build --release --locked --target x86_64-unknown-linux-musl -p meka-studio
+
+# Fetch the Meka the desktop app is built with into crates/meka-studio-desktop/binaries.
+desktop-meka:
+    python3 crates/meka-studio-desktop/fetch-meka.py "$(rustc -vV | sed -n 's/^host: //p')"
+
+# Run the desktop app from source, with the Meka it is built with beside it.
+desktop: web desktop-meka
+    cargo build --locked -p meka-studio-desktop
+    cp crates/meka-studio-desktop/binaries/meka{{ exe }} target/debug/
+    ./target/debug/meka-studio-desktop
+
+# Needs the Tauri CLI: cargo install tauri-cli --version 2.12.5 --locked
+# Bundle the desktop app for this computer into target/release/bundle.
+desktop-bundle: web desktop-meka
+    cd crates/meka-studio-desktop && cargo tauri build --config '{"bundle":{"resources":{"binaries/meka{{ exe }}":"meka{{ exe }}"}}}'
 
 # Run every check CI runs.
 check:

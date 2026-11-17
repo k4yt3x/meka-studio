@@ -100,8 +100,79 @@ jobs:
           path: ${{ env.BINARY }}
           if-no-files-found: error
 
+  desktop:
+    needs: interface
+    strategy:
+      matrix:
+        include:
+          - name: x86_64-linux
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bundles: deb,appimage
+            python: python3
+          - name: aarch64-macos
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            bundles: dmg
+            python: python3
+          - name: x86_64-windows
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bundles: nsis
+            python: python
+            exe: .exe
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      CARGO_TERM_COLOR: always
+      TARGET: ${{ matrix.target }}
+      EXE: ${{ matrix.exe }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: interface
+          path: web/dist
+      # The webview and tray icon, and patchelf for the AppImage.
+      - if: runner.os == 'Linux'
+        run: >
+          sudo apt-get update && sudo apt-get install --yes
+          libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+      # Git's Perl, which may come first on Windows' path, cannot configure the vendored OpenSSL.
+      - if: runner.os == 'Windows'
+        run: echo 'OPENSSL_SRC_PERL=C:\Strawberry\perl\bin\perl.exe' >> "$GITHUB_ENV"
+      - run: rustup toolchain install stable --profile minimal --target "$TARGET"
+      - run: cargo install tauri-cli --version 2.12.5 --locked
+      - run: ${{ matrix.python }} crates/meka-studio-desktop/fetch-meka.py "$TARGET"
+      - name: Bundle the app with its Meka
+        working-directory: crates/meka-studio-desktop
+        run: >
+          cargo tauri build --target "$TARGET" --bundles ${{ matrix.bundles }}
+          --config "{\"bundle\":{\"resources\":{\"binaries/meka$EXE\":\"meka$EXE\"}}}"
+      - name: Name the bundles
+        run: |
+          bundle="target/$TARGET/release/bundle"
+          for file in "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage "$bundle"/dmg/*.dmg \
+            "$bundle"/nsis/*-setup.exe; do
+            [ -e "$file" ] || continue
+            case "$file" in
+              *-setup.exe) suffix=-setup.exe ;;
+              *) suffix=".${file##*.}" ;;
+            esac
+            cp "$file" "meka-studio-desktop-${{ matrix.name }}$suffix"
+          done
+          ls meka-studio-desktop-*
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: meka-studio-desktop-${{ matrix.name }}
+          path: meka-studio-desktop-*
+          if-no-files-found: error
+
   publish:
-    needs: binaries
+    needs: [binaries, desktop]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

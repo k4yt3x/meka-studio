@@ -1,15 +1,20 @@
 import { LogOut, RefreshCw } from 'lucide-react';
-import { useConnection, useRuntime } from '../connections/context';
+import { useConnection, useDesktopApp, useRuntime } from '../connections/context';
 import { useAction } from '../components/actions';
 import { Button } from '../components/ui/button';
 import { ErrorNotice, Loading } from '../components/common';
 import { MekaStudioLink } from '../components/layout';
+import { OpenLogsButton, RestartMekaButton } from './desktop';
 
-/** What a signed-in page shows while Meka cannot be reached: why, and ways to try again. */
+/**
+ * What a signed-in page shows while Meka cannot be reached: why, and ways to try again. The desktop
+ * app's window, which cannot sign out, restarts the Meka it runs instead.
+ */
 export function Unavailable() {
   const runtime = useRuntime();
   const state = useConnection();
   const action = useAction();
+  const desktopApp = useDesktopApp();
   return (
     <main className="welcome unavailable">
       <section className="connection-card" aria-label="Meka is unavailable">
@@ -24,14 +29,21 @@ export function Unavailable() {
                 <RefreshCw size={16} />
                 Try again
               </Button>
-              <Button
-                variant="secondary"
-                disabled={action.busy}
-                onClick={() => void action.run(() => runtime.signOut())}
-              >
-                <LogOut size={16} />
-                Sign out
-              </Button>
+              {desktopApp ? (
+                <>
+                  <RestartMekaButton />
+                  <OpenLogsButton />
+                </>
+              ) : (
+                <Button
+                  variant="secondary"
+                  disabled={action.busy}
+                  onClick={() => void action.run(() => runtime.signOut())}
+                >
+                  <LogOut size={16} />
+                  Sign out
+                </Button>
+              )}
             </div>
             <ErrorNotice error={action.error} />
           </>

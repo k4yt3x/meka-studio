@@ -587,6 +587,166 @@
         }
       }
     },
+    "/api/desktop": {
+      "get": {
+        "tags": ["desktop"],
+        "operationId": "state",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopState"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not the desktop app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/desktop/enter": {
+      "get": {
+        "tags": ["desktop"],
+        "operationId": "enter",
+        "parameters": [
+          {
+            "name": "ticket",
+            "in": "query",
+            "description": "The ticket the app opened the window with",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "Signed in, if the ticket was not used yet; on to the interface"
+          },
+          "404": {
+            "description": "Not the desktop app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/desktop/logs/open": {
+      "post": {
+        "tags": ["desktop"],
+        "operationId": "open_logs",
+        "responses": {
+          "204": {
+            "description": "The folder is open in the file manager"
+          },
+          "404": {
+            "description": "Not the desktop app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/desktop/meka/restart": {
+      "post": {
+        "tags": ["desktop"],
+        "operationId": "restart_meka",
+        "responses": {
+          "202": {
+            "description": "Meka is stopping, to start again"
+          },
+          "404": {
+            "description": "Not the desktop app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/desktop/notifications/test": {
+      "post": {
+        "tags": ["desktop"],
+        "operationId": "test_notification",
+        "responses": {
+          "204": {
+            "description": "A test notification is shown"
+          },
+          "404": {
+            "description": "Not the desktop app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/desktop/settings": {
+      "put": {
+        "tags": ["desktop"],
+        "operationId": "save_settings",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DesktopSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Saved; how the app stands now",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DesktopState"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not the desktop app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/files/delete": {
       "post": {
         "tags": ["files"],
@@ -1685,6 +1845,11 @@
         "description": "How an entry differs from the last commit, as Files marks it.",
         "enum": ["modified", "added", "deleted", "renamed", "untracked", "ignored", "conflicted"]
       },
+      "CloseAction": {
+        "type": "string",
+        "description": "What closing the window does.",
+        "enum": ["tray", "quit"]
+      },
       "Confirmation": {
         "type": "object",
         "description": "Confirming who you are: a passkey's answer, or the password where there is no passkey.",
@@ -1708,6 +1873,58 @@
           "verified_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "DesktopSettings": {
+        "type": "object",
+        "description": "The desktop app's settings. One missing from the saved settings takes its default.",
+        "required": ["close", "notifications", "check_updates"],
+        "properties": {
+          "check_updates": {
+            "type": "boolean",
+            "description": "Whether GitHub is asked once a day for a newer release.",
+            "default": true
+          },
+          "close": {
+            "$ref": "#/components/schemas/CloseAction",
+            "description": "What closing the window does.",
+            "default": "tray"
+          },
+          "notifications": {
+            "type": "boolean",
+            "description": "Whether system notifications are shown: of turns, downloads and newer releases.",
+            "default": true
+          }
+        }
+      },
+      "DesktopState": {
+        "type": "object",
+        "description": "How the desktop app stands.",
+        "required": ["settings", "meka", "logs"],
+        "properties": {
+          "logs": {
+            "type": "string",
+            "description": "The folder Meka's log is written to."
+          },
+          "meka": {
+            "$ref": "#/components/schemas/MekaProcess",
+            "description": "The Meka the app runs."
+          },
+          "settings": {
+            "$ref": "#/components/schemas/DesktopSettings",
+            "description": "The app's settings."
+          },
+          "update": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Update",
+                "description": "A newer release of Meka Studio, if the last check found one."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -1963,6 +2180,27 @@
           }
         }
       },
+      "MekaProcess": {
+        "type": "object",
+        "description": "The Meka the desktop app runs.",
+        "required": ["state"],
+        "properties": {
+          "last_exit": {
+            "type": ["string", "null"],
+            "description": "How it last ended, such as \"exit status: 1\", if it has."
+          },
+          "pid": {
+            "type": ["integer", "null"],
+            "format": "int32",
+            "description": "Its process id, while it runs.",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProcessState",
+            "description": "How its process stands."
+          }
+        }
+      },
       "MekaStatus": {
         "type": "object",
         "description": "How Meka stands.",
@@ -2213,6 +2451,11 @@
           }
         }
       },
+      "ProcessState": {
+        "type": "string",
+        "description": "How Meka's process stands.",
+        "enum": ["starting", "running", "restarting", "stopped"]
+      },
       "PushState": {
         "type": "object",
         "description": "Whether push notifications work, and whether this device receives them.",
@@ -2303,9 +2546,14 @@
           "device_name",
           "fresh_seconds",
           "passkeys_available",
-          "has_passkeys"
+          "has_passkeys",
+          "desktop"
         ],
         "properties": {
+          "desktop": {
+            "type": "boolean",
+            "description": "Whether this is the desktop app's window, which signs itself in and has no password,\npasskeys, other devices or push notifications to manage."
+          },
           "device_id": {
             "type": "string",
             "description": "This sign-in's id, as the devices list names it."
@@ -2480,6 +2728,21 @@
           "version": {
             "type": ["string", "null"],
             "description": "What the file held, to save over it only as it was: none for one cut short or binary."
+          }
+        }
+      },
+      "Update": {
+        "type": "object",
+        "description": "A newer release of Meka Studio.",
+        "required": ["version", "url"],
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Its release page."
+          },
+          "version": {
+            "type": "string",
+            "description": "Its version."
           }
         }
       },

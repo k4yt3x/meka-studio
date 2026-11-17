@@ -206,6 +206,33 @@ impl Config {
         })
     }
 
+    /// The config of the desktop app's Meka Studio: listening on loopback at `listen`, reached at
+    /// that address, keeping its state in `state_dir`, and reaching the Meka it runs at `meka_url`
+    /// with `meka_token`.
+    pub(crate) fn desktop(
+        listen: SocketAddr,
+        state_dir: PathBuf,
+        meka_url: Url,
+        meka_token: String,
+    ) -> anyhow::Result<Self> {
+        Ok(Self {
+            listen,
+            public_origin: origin(&format!("http://{listen}"), "listen")?,
+            trusted_proxies: Vec::new(),
+            state_dir,
+            meka: MekaConfig {
+                url: origin(meka_url.as_str(), "meka.url")?,
+                token: MekaToken::Inline(meka_token),
+            },
+            push_subject: None,
+            terminal: TerminalConfig {
+                enabled: true,
+                idle_timeout: DEFAULT_TERMINAL_IDLE,
+                shell: None,
+            },
+        })
+    }
+
     /// Whether people reach Meka Studio over HTTPS, where its cookies are secure.
     pub(crate) fn is_https(&self) -> bool {
         self.public_origin.scheme() == "https"

@@ -1,5 +1,27 @@
 # Installing Meka Studio
 
+Meka Studio comes two ways. The [desktop app](#the-desktop-app) is for the computer you work on: it runs a Meka of its own, and needs nothing else set up. The server runs on a Meka host, for any browser or phone to reach; the numbered steps set it up.
+
+## The desktop app
+
+Download the installer for your computer from the [releases](https://github.com/k4yt3x/meka-studio/releases): `meka-studio-desktop-x86_64-linux.deb` or `meka-studio-desktop-x86_64-linux.AppImage`, `meka-studio-desktop-aarch64-macos.dmg` for Apple silicon, or `meka-studio-desktop-x86_64-windows-setup.exe`. These are the systems Meka has releases for. It is not signed: on macOS, move it to Applications and run `xattr -dr com.apple.quarantine "/Applications/Meka Studio.app"` before opening it; on Windows, SmartScreen asks before the installer runs. On Linux it needs WebKitGTK 4.1, which the `.deb` installs; with the AppImage, install `webkit2gtk-4.1` on Arch or `libwebkit2gtk-4.1-0` on Debian and Ubuntu.
+
+The app runs the Meka it comes with, which it starts and stops itself, and keeps that Meka's config and sessions in folders of its own. It reads nothing of another Meka on the computer, so it starts with no providers: add one in **Settings → Providers**.
+
+| Folder                                       | Linux                                 | macOS                                           | Windows                               |
+| -------------------------------------------- | ------------------------------------- | ----------------------------------------------- | ------------------------------------- |
+| Settings, and Meka's config in `meka-config` | `~/.config/bot.meka.studio`           | `~/Library/Application Support/bot.meka.studio` | `%APPDATA%\bot.meka.studio`           |
+| Data, with Meka's sessions in `meka-data`    | `~/.local/share/bot.meka.studio`      | `~/Library/Application Support/bot.meka.studio` | `%APPDATA%\bot.meka.studio`           |
+| Logs                                         | `~/.local/share/bot.meka.studio/logs` | `~/Library/Logs/bot.meka.studio`                | `%LOCALAPPDATA%\bot.meka.studio\logs` |
+
+The `meka` command reaches the app's sessions with `MEKA_CONFIG_DIR` and `MEKA_DATA_DIR` set to its `meka-config` and `meka-data` folders, if it is the same version as the app's Meka, which **Settings → About** shows: a Meka refuses sessions a newer one has stored.
+
+To upgrade, install the new version over the old one. The app looks for a newer release once a day, and says when there is one; **Settings → General** turns that off.
+
+If the window stays blank or flickers on Linux with an NVIDIA graphics card, start the app with `WEBKIT_DISABLE_DMABUF_RENDERER=1` set: WebKitGTK, which draws the window, does not always work with NVIDIA's driver.
+
+## The server
+
 Meka Studio runs on the Meka host, beside Meka. Meka listens on loopback only; Meka Studio signs you in, serves the interface, and passes your requests to Meka with its token. Only Meka Studio is reachable from your network or the internet, through a TLS proxy or a tunnel in front of it.
 
 ```
@@ -32,11 +54,11 @@ Or build it: install Node.js 24 and the Rust toolchain, then
 
 ```sh
 (cd web && npm ci && npm run build)
-cargo build --release --locked
+cargo build --release --locked -p meka-studio
 sudo install -m 755 target/release/meka-studio /usr/local/bin/meka-studio
 ```
 
-The interface is built into the binary, so build `web/` first. With [just](https://github.com/casey/just), `just build` does both. On Windows, building the bundled OpenSSL needs Perl, such as Strawberry Perl. A binary built on another machine needs a glibc at least as new as that machine's; `cargo build --release --locked --target x86_64-unknown-linux-musl`, with `musl-tools` installed and the target added (`rustup target add x86_64-unknown-linux-musl`), builds one that runs on any Linux, as the releases are.
+The interface is built into the binary, so build `web/` first. With [just](https://github.com/casey/just), `just build` does both. On Windows, building the bundled OpenSSL needs Perl, such as Strawberry Perl. A binary built on another machine needs a glibc at least as new as that machine's; `cargo build --release --locked -p meka-studio --target x86_64-unknown-linux-musl`, with `musl-tools` installed and the target added (`rustup target add x86_64-unknown-linux-musl`), builds one that runs on any Linux, as the releases are.
 
 ## 2. Give Meka Studio a Meka token
 

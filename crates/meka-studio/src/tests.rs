@@ -1056,3 +1056,229 @@ async fn passkey_challenges_are_limited_per_network() {
     assert_eq!(refused.status(), StatusCode::TOO_MANY_REQUESTS);
     assert!(refused.headers().contains_key(header::RETRY_AFTER));
 }
+
+/// A stand-in desktop app: its settings, and the notifications it was asked to show.
+#[derive(Default)]
+struct StandInHost {
+    settings: Mutex<crate::desktop::DesktopSettings>,
+    shown: Mutex<Vec<crate::desktop::Notification>>,
+}
+
+impl crate::desktop::Host for StandInHost {
+    fn notify(&self, notification: crate::desktop::Notification) {
+        self.shown.lock().unwrap().push(notification);
+    }
+
+    fn state(&self) -> crate::desktop::DesktopState {
+        crate::desktop::DesktopState {
+            settings: *self.settings.lock().unwrap(),
+            meka: crate::desktop::MekaProcess {
+                state: crate::desktop::ProcessState::Running,
+                pid: Some(1),
+                last_exit: None,
+            },
+            update: None,
+            logs: "/logs".to_owned(),
+        }
+    }
+
+    fn save_settings(&self, settings: crate::desktop::DesktopSettings) -> anyhow::Result<()> {
+        *self.settings.lock().unwrap() = settings;
+        Ok(())
+    }
+
+    fn restart_meka(&self) {}
+
+    fn open_logs(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+/// Meka Studio inside a stand-in desktop app, on `store`: the app, the router, the window's
+/// `Cookie` header, and the folder holding its state.
+async fn desktop_studio(
+    store: Store,
+    host: Arc<StandInHost>,
+) -> (App, Router, String, tempfile::TempDir) {
+    let (meka, _) = stand_in_meka().await;
+    let dir = tempfile::tempdir().unwrap();
+    let config = Config::desktop(
+        "127.0.0.1:41234".parse().unwrap(),
+        dir.path().join("state"),
+        format!("http://{meka}").parse().unwrap(),
+        TOKEN.to_owned(),
+    )
+    .unwrap();
+    let (app, ticket) = App::open_desktop(config, store, host).await.unwrap();
+    let router = router(&app).unwrap();
+    let enter = |ticket: &str| {
+        Request::builder()
+            .uri(format!("/api/desktop/enter?ticket={ticket}"))
+            .body(Body::empty())
+            .unwrap()
+    };
+    let wrong = send(&router, enter("not-the-ticket")).await;
+    assert_eq!(wrong.status(), StatusCode::SEE_OTHER);
+    assert!(!wrong.headers().contains_key(header::SET_COOKIE));
+    let entered = send(&router, enter(&ticket)).await;
+    assert_eq!(entered.status(), StatusCode::SEE_OTHER);
+    assert_eq!(entered.headers()[header::LOCATION], "/");
+    let cookie = entered.headers()[header::SET_COOKIE]
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned();
+    let again = send(&router, enter(&ticket)).await;
+    assert!(
+        !again.headers().contains_key(header::SET_COOKIE),
+        "a ticket signs in once"
+    );
+    (app, router, cookie, dir)
+}
+
+fn from_the_window(method: &str, path: &str, cookie: &str) -> axum::http::request::Builder {
+    Request::builder()
+        .method(method)
+        .uri(path)
+        .header(header::ORIGIN, "http://127.0.0.1:41234")
+        .header(header::COOKIE, cookie)
+}
+
+#[tokio::test]
+async fn the_desktop_window_is_signed_in_and_has_nothing_of_signing_in_to_manage() {
+    let host = Arc::new(StandInHost::default());
+    let (_app, router, cookie, _dir) =
+        desktop_studio(Store::in_memory().unwrap(), Arc::clone(&host)).await;
+    let session = send(
+        &router,
+        from_the_window("GET", "/api/auth/session", &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(session.status(), StatusCode::OK);
+    assert_eq!(json(session).await["desktop"], true);
+    for (method, path) in [
+        ("POST", "/api/auth/sign-out"),
+        ("POST", "/api/auth/password"),
+        ("POST", "/api/auth/passkey/challenge"),
+        ("GET", "/api/account/devices"),
+        ("PUT", "/api/account/password"),
+        ("GET", "/api/push"),
+    ] {
+        let refused = send(
+            &router,
+            from_the_window(method, path, &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from("{}"))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(refused.status(), StatusCode::NOT_FOUND, "{method} {path}");
+        assert_eq!(
+            json(refused).await["type"],
+            "urn:meka-studio:disabled",
+            "{method} {path}"
+        );
+    }
+    let still = send(
+        &router,
+        from_the_window("GET", "/api/auth/session", &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(still.status(), StatusCode::OK, "signing out was refused");
+    let saved = send(
+        &router,
+        from_the_window("PUT", "/api/desktop/settings", &cookie)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(
+                r#"{"close":"quit","notifications":false,"check_updates":false}"#,
+            ))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(saved.status(), StatusCode::OK);
+    assert_eq!(json(saved).await["settings"]["close"], "quit");
+    assert_eq!(
+        host.settings.lock().unwrap().close,
+        crate::desktop::CloseAction::Quit
+    );
+    let tested = send(
+        &router,
+        from_the_window("POST", "/api/desktop/notifications/test", &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(tested.status(), StatusCode::NO_CONTENT);
+    assert_eq!(host.shown.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn each_start_signs_the_desktop_window_in_afresh() {
+    let store = Store::in_memory().unwrap();
+    let (_first, _, before, _first_dir) =
+        desktop_studio(store.clone(), Arc::new(StandInHost::default())).await;
+    let (_second, router, after, _second_dir) =
+        desktop_studio(store, Arc::new(StandInHost::default())).await;
+    let session = |cookie: &str| {
+        from_the_window("GET", "/api/auth/session", cookie)
+            .body(Body::empty())
+            .unwrap()
+    };
+    assert_eq!(
+        send(&router, session(&before)).await.status(),
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        send(&router, session(&after)).await.status(),
+        StatusCode::OK
+    );
+}
+
+#[tokio::test]
+async fn only_the_desktop_app_has_its_settings() {
+    let (_app, router, _, _dir) = meka_studio().await;
+    let cookie = sign_in(&router).await;
+    let response = send(
+        &router,
+        request("GET", "/api/desktop")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    let session = send(
+        &router,
+        request("GET", "/api/auth/session")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(json(session).await["desktop"], false);
+}
+
+#[tokio::test]
+async fn the_desktop_window_stays_signed_in_however_long_it_goes_unused() {
+    let (app, router, cookie, _dir) = desktop_studio(
+        Store::in_memory().unwrap(),
+        Arc::new(StandInHost::default()),
+    )
+    .await;
+    app.store.age_sessions_for_test().await.unwrap();
+    app.sweep().await;
+    let session = send(
+        &router,
+        from_the_window("GET", "/api/auth/session", &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(session.status(), StatusCode::OK);
+}

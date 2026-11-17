@@ -29,6 +29,13 @@ export interface RuntimeState {
   notice?: string;
   connectionIssue?: 'offline' | 'checking';
 }
+/**
+ * What the connection banner names: this device, or in the desktop app, whose server runs in the
+ * window's own process, the Meka it runs.
+ */
+function connectionName(account: Gateway['SessionView']) {
+  return account.desktop ? 'Meka' : account.device_name;
+}
 /** How long batched event stream writes may wait on a device saving data, in milliseconds. */
 const DATA_SAVER_BATCH = 500;
 /** How many messages a conversation opens with on a device saving data. */
@@ -188,7 +195,7 @@ export class ConnectionRuntime {
       ...this.state,
       account,
       ...(this.state.connection
-        ? { connection: { ...this.state.connection, name: account.device_name } }
+        ? { connection: { ...this.state.connection, name: connectionName(account) } }
         : {}),
     });
     return account;
@@ -320,7 +327,7 @@ export class ConnectionRuntime {
       }
       const connection: Connection = {
         id: 'meka-studio',
-        name: account.device_name,
+        name: connectionName(account),
         endpoint: api.base,
         authority: account.device_id,
       };

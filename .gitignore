@@ -3,6 +3,8 @@
 node_modules/
 dist/
 *.tsbuildinfo
+/crates/meka-studio-desktop/binaries/
+/crates/meka-studio-desktop/gen/
 
 # Test reports, traces, screenshots, and browser state
 coverage/

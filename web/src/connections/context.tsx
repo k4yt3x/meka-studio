@@ -1,6 +1,7 @@
 import { createContext, useContext, useSyncExternalStore } from 'react';
 import { useQueries, useQuery } from '@tanstack/react-query';
 import type { Query } from '../api/client';
+import type { Gateway } from '../api/gateway';
 import type { ConnectionRuntime } from './runtime';
 
 export const RuntimeContext = createContext<ConnectionRuntime | null>(null);
@@ -79,6 +80,17 @@ export function useGatewayAll<T>(path: string, queries: readonly Query[]) {
       retry: false,
     })),
   });
+}
+/**
+ * Whether this page is the desktop app's window, which signs itself in, runs its own Meka, and has
+ * no password, passkeys, other devices or push notifications to manage.
+ */
+export function useDesktopApp() {
+  return useConnection().account?.desktop ?? false;
+}
+/** How the desktop app stands, read again every `interval` milliseconds; nothing elsewhere. */
+export function useDesktopState(interval: number | false = false) {
+  return useGateway<Gateway['DesktopState']>('/api/desktop', undefined, useDesktopApp(), interval);
 }
 export function useCan(scope: string) {
   return useConnection().info?.scopes.includes(scope) ?? false;

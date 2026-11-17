@@ -17,6 +17,8 @@ import { ConnectionRuntime } from './connections/runtime';
 import { browserStorage } from './connections/storage';
 import 'katex/contrib/copy-tex';
 import './styles.css';
+import { TITLE_BAR } from './components/title-bar';
+import { WindowControls } from './components/window-controls';
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
 });
@@ -99,6 +101,7 @@ createRoot(rootElement).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
       <RouterProvider router={router} />
+      {TITLE_BAR === 'app' && <WindowControls />}
     </QueryClientProvider>
   </StrictMode>,
 );

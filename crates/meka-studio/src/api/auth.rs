@@ -34,6 +34,9 @@ pub(crate) struct SessionView {
     pub(crate) passkeys_available: bool,
     /// Whether the user has a passkey.
     pub(crate) has_passkeys: bool,
+    /// Whether this is the desktop app's window, which signs itself in and has no password,
+    /// passkeys, other devices or push notifications to manage.
+    pub(crate) desktop: bool,
 }
 
 /// A username and password.
@@ -126,6 +129,7 @@ pub(crate) async fn session_view(app: &App, signed: &Signed) -> ApiResult<Sessio
         fresh_seconds: FRESH_WINDOW.as_secs(),
         passkeys_available: app.auth.passkeys.is_available(),
         has_passkeys,
+        desktop: app.desktop.is_some(),
     })
 }
 

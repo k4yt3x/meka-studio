@@ -58,6 +58,12 @@ const TOUCH_EVERY: Duration = Duration::from_secs(60);
 /// The sign-in cookie's name, before any prefix.
 const SESSION_COOKIE: &str = "meka_studio_session";
 
+/// The desktop app's user, who signs in with no password.
+const DESKTOP_USER: &str = "desktop";
+
+/// The name the desktop app's window has among the sign-ins.
+const DESKTOP_DEVICE: &str = "Desktop app";
+
 /// Who sent a request: their address, as far as it can be trusted, and their browser.
 #[derive(Debug, Clone)]
 pub(crate) struct Client {
@@ -188,6 +194,9 @@ pub(crate) struct Auth {
     pub(crate) passkeys: Passkeys,
     limits: Limits,
     https: bool,
+    /// Whether sign-ins end after [`IDLE_LIFETIME`] unused and [`ABSOLUTE_LIFETIME`] in all. The
+    /// desktop app's window holds its sign-in for as long as the app is installed.
+    expiring: bool,
     /// Counts the times sign-ins ended here, so connections held open look whether theirs did.
     ends: watch::Sender<u64>,
     /// Whether Meka Studio is stopping, which ends every connection held open.
@@ -203,8 +212,8 @@ struct Limits {
 }
 
 impl Auth {
-    /// Signing in for `config`, with sign-ins kept in `store`.
-    pub(crate) fn new(config: &Config, store: Store) -> anyhow::Result<Self> {
+    /// Signing in for `config`, with sign-ins kept in `store`, ending in time if `expiring`.
+    pub(crate) fn new(config: &Config, store: Store, expiring: bool) -> anyhow::Result<Self> {
         Ok(Self {
             store,
             hasher: Hasher::new()?,
@@ -216,6 +225,7 @@ impl Auth {
                 confirms: Limiter::new(CONFIRMS_PER_DEVICE),
             },
             https: config.is_https(),
+            expiring,
             ends: watch::channel(0).0,
             stopping: std::sync::atomic::AtomicBool::new(false),
         })
@@ -378,7 +388,7 @@ impl Auth {
             return Ok(None);
         };
         let now = Utc::now();
-        if is_expired(&session, now) {
+        if self.expired(&session, now) {
             self.store
                 .delete_session(session.user_id, &session.id)
                 .await?;
@@ -424,11 +434,50 @@ impl Auth {
                 return;
             }
             match self.store.session_by_id(id).await {
-                Ok(Some(session)) if !is_expired(&session, Utc::now()) => {}
+                Ok(Some(session)) if !self.expired(&session, Utc::now()) => {}
                 Ok(_) => return,
                 Err(error) => tracing::warn!("could not look whether a sign-in ended: {error:#}"),
             }
         }
+    }
+
+    /// Whether sign-ins end in time; see [`Auth::new`].
+    pub(crate) const fn expiring(&self) -> bool {
+        self.expiring
+    }
+
+    /// Whether `session` has ended for age, where sign-ins end in time.
+    fn expired(&self, session: &SessionRow, now: DateTime<Utc>) -> bool {
+        self.expiring && is_expired(session, now)
+    }
+
+    /// Signs the desktop app's window in, ending every sign-in before it; the sign-in and the
+    /// token its cookie holds. The window is the one device: its user, added on first start, has a
+    /// password nobody was told, and signing in any other way is refused in the desktop app.
+    pub(crate) async fn desktop_sign_in(&self) -> anyhow::Result<(SessionRow, String)> {
+        let user = match self.store.user().await? {
+            Some(user) => user,
+            None => {
+                let password = random_token()?;
+                self.store
+                    .add_user(DESKTOP_USER, &self.hasher.hash(&password).await?)
+                    .await?;
+                self.store
+                    .user()
+                    .await?
+                    .ok_or_else(|| anyhow::anyhow!("the desktop app's user was not added"))?
+            }
+        };
+        self.store.delete_other_sessions(user.id, None).await?;
+        let client = Client {
+            ip: IpAddr::from([127, 0, 0, 1]),
+            user_agent: String::new(),
+        };
+        let (session, token) = self.start_session(&user, &client, "desktop").await?;
+        self.store
+            .rename_session(user.id, &session.id, Some(DESKTOP_DEVICE))
+            .await?;
+        Ok((session, token))
     }
 
     /// The sign-in cookie's name: `__Host-` prefixed where cookies are secure, so another host

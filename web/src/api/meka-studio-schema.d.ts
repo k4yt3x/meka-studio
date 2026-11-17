@@ -244,6 +244,102 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/desktop': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['state'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/desktop/enter': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['enter'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/desktop/logs/open': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['open_logs'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/desktop/meka/restart': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['restart_meka'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/desktop/notifications/test': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['test_notification'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/desktop/settings': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put: operations['save_settings'];
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/files/delete': {
     parameters: {
       query?: never;
@@ -608,6 +704,11 @@ export interface components {
      */
     ChangeKind:
       'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'ignored' | 'conflicted';
+    /**
+     * @description What closing the window does.
+     * @enum {string}
+     */
+    CloseAction: 'tray' | 'quit';
     /** @description Confirming who you are: a passkey's answer, or the password where there is no passkey. */
     Confirmation: {
       challenge?: string | null;
@@ -618,6 +719,34 @@ export interface components {
     Confirmed: {
       /** Format: date-time */
       verified_at: string;
+    };
+    /** @description The desktop app's settings. One missing from the saved settings takes its default. */
+    DesktopSettings: {
+      /**
+       * @description Whether GitHub is asked once a day for a newer release.
+       * @default true
+       */
+      check_updates: boolean;
+      /**
+       * @description What closing the window does.
+       * @default tray
+       */
+      close: components['schemas']['CloseAction'];
+      /**
+       * @description Whether system notifications are shown: of turns, downloads and newer releases.
+       * @default true
+       */
+      notifications: boolean;
+    };
+    /** @description How the desktop app stands. */
+    DesktopState: {
+      /** @description The folder Meka's log is written to. */
+      logs: string;
+      /** @description The Meka the app runs. */
+      meka: components['schemas']['MekaProcess'];
+      /** @description The app's settings. */
+      settings: components['schemas']['DesktopSettings'];
+      update?: components['schemas']['Update'] | null;
     };
     /** @description A device signed in. */
     DeviceView: {
@@ -732,6 +861,18 @@ export interface components {
       entry: components['schemas']['Entry'];
       /** @description Its absolute path. */
       path: string;
+    };
+    /** @description The Meka the desktop app runs. */
+    MekaProcess: {
+      /** @description How it last ended, such as "exit status: 1", if it has. */
+      last_exit?: string | null;
+      /**
+       * Format: int32
+       * @description Its process id, while it runs.
+       */
+      pid?: number | null;
+      /** @description How its process stands. */
+      state: components['schemas']['ProcessState'];
     };
     /** @description How Meka stands. */
     MekaStatus: {
@@ -849,6 +990,11 @@ export interface components {
       /** @description `urn:meka-studio:` and what kind of problem it is. */
       type: string;
     };
+    /**
+     * @description How Meka's process stands.
+     * @enum {string}
+     */
+    ProcessState: 'starting' | 'running' | 'restarting' | 'stopped';
     /** @description Whether push notifications work, and whether this device receives them. */
     PushState: {
       /** @description Whether Meka Studio can send them. */
@@ -890,6 +1036,11 @@ export interface components {
     };
     /** @description Who is signed in, on which device, and what they can confirm themselves with. */
     SessionView: {
+      /**
+       * @description Whether this is the desktop app's window, which signs itself in and has no password,
+       *     passkeys, other devices or push notifications to manage.
+       */
+      desktop: boolean;
       /** @description This sign-in's id, as the devices list names it. */
       device_id: string;
       /** @description What this device is called. */
@@ -977,6 +1128,13 @@ export interface components {
       truncated: boolean;
       /** @description What the file held, to save over it only as it was: none for one cut short or binary. */
       version?: string | null;
+    };
+    /** @description A newer release of Meka Studio. */
+    Update: {
+      /** @description Its release page. */
+      url: string;
+      /** @description Its version. */
+      version: string;
     };
     /** @description An upload's state. */
     UploadView: {
@@ -1560,6 +1718,178 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  state: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DesktopState'];
+        };
+      };
+      /** @description Not the desktop app */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  enter: {
+    parameters: {
+      query: {
+        /** @description The ticket the app opened the window with */
+        ticket: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Signed in, if the ticket was not used yet; on to the interface */
+      303: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not the desktop app */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  open_logs: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The folder is open in the file manager */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not the desktop app */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  restart_meka: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Meka is stopping, to start again */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not the desktop app */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  test_notification: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description A test notification is shown */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not the desktop app */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  save_settings: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['DesktopSettings'];
+      };
+    };
+    responses: {
+      /** @description Saved; how the app stands now */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DesktopState'];
+        };
+      };
+      /** @description Not the desktop app */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
       };
     };
   };

@@ -10,6 +10,10 @@
 //!
 //! Every push shows a notification: iOS cancels a subscription whose pushes show nothing.
 //!
+//! Inside the desktop app, the app's window is a device too, told by a system notification. It
+//! keeps its event streams open while hidden, so it is held back from only while its page is in
+//! front: of turns ending, which the page tells of, and of the session it shows.
+//!
 //! The feed is followed with push notifications off too: a session it says was deleted takes its
 //! terminals with it.
 
@@ -29,6 +33,7 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     config::Config,
+    desktop::{Desktop, Notification},
     meka::Meka,
     proxy::Watching,
     store::{Store, SubscriptionRow},
@@ -101,6 +106,19 @@ pub(crate) enum PushKind {
     Test,
 }
 
+impl PushKind {
+    /// What a notification says happened, under the session's title.
+    pub(crate) const fn words(self) -> &'static str {
+        match self {
+            Self::Finished => "Finished.",
+            Self::Failed => "Failed.",
+            Self::Approval => "Waiting for your approval.",
+            Self::Question => "Waiting for your answer.",
+            Self::Test => "Notifications work on this device.",
+        }
+    }
+}
+
 /// A push's message, which the service worker shows.
 #[derive(Debug, Clone, Serialize)]
 pub(crate) struct Message {
@@ -147,17 +165,19 @@ pub(crate) struct Push {
     client: reqwest::Client,
     sessions: Mutex<HashMap<String, SessionInfo>>,
     compactions: Mutex<HashSet<String>>,
+    desktop: Option<Desktop>,
 }
 
 impl Push {
     /// Push notifications for `config`, with Meka Studio's key made on first start and kept in
-    /// `store`.
+    /// `store`, and system notifications through `desktop` where Meka Studio runs in the app.
     pub(crate) async fn open(
         config: &Config,
         store: Store,
         meka: Arc<Meka>,
         watching: Arc<Watching>,
         terminals: Arc<Terminals>,
+        desktop: Option<Desktop>,
     ) -> anyhow::Result<Arc<Self>> {
         let candidate = URL_SAFE_NO_PAD.encode(crypto::random_key()?.to_bytes());
         let kept = store.keep_secret(KEY_SECRET, &candidate).await?;
@@ -179,12 +199,18 @@ impl Push {
             client,
             sessions: Mutex::new(HashMap::new()),
             compactions: Mutex::new(HashSet::new()),
+            desktop,
         }))
     }
 
     /// Whether pushes can be sent.
     pub(crate) fn is_enabled(&self) -> bool {
         self.subject.is_some()
+    }
+
+    /// Whether anyone is told of what happens: by push, or in the desktop app.
+    fn notifies(&self) -> bool {
+        self.is_enabled() || self.desktop.is_some()
     }
 
     /// The public key browsers subscribe with, uncompressed, in URL-safe base64.
@@ -206,10 +232,7 @@ impl Push {
             return Err(PushError::Gone);
         }
         let mut message = message.clone();
-        if message.title.chars().count() > MAX_TITLE_CHARS {
-            message.title = message.title.chars().take(MAX_TITLE_CHARS - 1).collect();
-            message.title.push('…');
-        }
+        message.title = shortened(&message.title);
         let message = &message;
         let receiver = crypto::Receiver::from_base64(&subscription.p256dh, &subscription.auth)?;
         let body = crypto::encrypt(
@@ -266,8 +289,22 @@ impl Push {
         )))
     }
 
-    /// Sends `message` about `session` to every device not watching it.
+    /// Sends `message` about `session` to every device not watching it, and to the desktop app's
+    /// window unless its page in front tells of it.
     async fn notify(&self, session: &str, message: Message) {
+        if let Some(desktop) = &self.desktop
+            && !window_holds_back(&self.watching, &desktop.device, session, message.kind)
+        {
+            desktop.host.notify(Notification {
+                title: if message.title.trim().is_empty() {
+                    "Meka Studio".to_owned()
+                } else {
+                    shortened(&message.title)
+                },
+                body: message.kind.words().to_owned(),
+                session: message.session.clone(),
+            });
+        }
         let subscriptions = match self.store.subscriptions().await {
             Ok(subscriptions) => subscriptions,
             Err(error) => {
@@ -276,10 +313,12 @@ impl Push {
             }
         };
         for subscription in subscriptions {
-            let ended = matches!(message.kind, PushKind::Finished | PushKind::Failed);
-            if self.watching.is_watching(&subscription.session_id, session)
-                || (ended && self.watching.is_focused(&subscription.session_id))
-            {
+            if browser_holds_back(
+                &self.watching,
+                &subscription.session_id,
+                session,
+                message.kind,
+            ) {
                 continue;
             }
             match self.send(&subscription, &message).await {
@@ -342,8 +381,8 @@ impl Push {
 
     /// Takes in `frame`, notifying of it if it is `news`.
     async fn event(&self, frame: &Frame, news: bool) {
-        // With push notifications off, the feed is followed for what it says of sessions alone.
-        let news = news && self.is_enabled();
+        // With notifications off, the feed is followed for what it says of sessions alone.
+        let news = news && self.notifies();
         let Ok(data) = serde_json::from_str::<serde_json::Value>(&frame.data) else {
             return;
         };
@@ -490,6 +529,31 @@ impl Push {
     }
 }
 
+/// `title`, cut to [`MAX_TITLE_CHARS`].
+fn shortened(title: &str) -> String {
+    if title.chars().count() <= MAX_TITLE_CHARS {
+        return title.to_owned();
+    }
+    let mut short: String = title.chars().take(MAX_TITLE_CHARS - 1).collect();
+    short.push('…');
+    short
+}
+
+/// Whether a browser `device` is not pushed a message of `kind` about `session`: while it watches
+/// the session, which the page tells of, and of a turn ending while a page of it is in front.
+fn browser_holds_back(watching: &Watching, device: &str, session: &str, kind: PushKind) -> bool {
+    let ended = matches!(kind, PushKind::Finished | PushKind::Failed);
+    watching.is_watching(device, session) || (ended && watching.is_focused(device))
+}
+
+/// Whether the desktop app's window `device` is not told of `kind` about `session`: only while its
+/// page is in front, and then of a turn ending, which the page tells of, or of the session it
+/// shows. Hidden, it still watches what it last showed.
+fn window_holds_back(watching: &Watching, device: &str, session: &str, kind: PushKind) -> bool {
+    let ended = matches!(kind, PushKind::Finished | PushKind::Failed);
+    watching.is_focused(device) && (ended || watching.is_watching(device, session))
+}
+
 /// A push's `Topic`: at most 32 characters of URL-safe base64, the same for a session's pushes.
 fn topic(session: &str) -> String {
     let digest = Sha256::digest(session.as_bytes());
@@ -627,6 +691,79 @@ mod tests {
         assert!(!at("https://fcm.googleapis.com:8443/x"));
         assert!(!at("https://127.0.0.1/x"));
         assert!(!at("https://localhost/x"));
+    }
+
+    #[test]
+    fn the_desktop_window_is_told_unless_its_page_in_front_tells_of_it() {
+        let watching = Arc::new(Watching::default());
+        // Hidden, the window still watches the session it showed last.
+        let _shown = watching.watch("window", "s1");
+        assert!(!window_holds_back(
+            &watching,
+            "window",
+            "s1",
+            PushKind::Finished
+        ));
+        assert!(!window_holds_back(
+            &watching,
+            "window",
+            "s1",
+            PushKind::Approval
+        ));
+        let _front = watching.focus("window");
+        assert!(window_holds_back(
+            &watching,
+            "window",
+            "s1",
+            PushKind::Finished
+        ));
+        assert!(window_holds_back(
+            &watching,
+            "window",
+            "s2",
+            PushKind::Failed
+        ));
+        assert!(window_holds_back(
+            &watching,
+            "window",
+            "s1",
+            PushKind::Question
+        ));
+        assert!(
+            !window_holds_back(&watching, "window", "s2", PushKind::Approval),
+            "an approval elsewhere is told of with the page in front"
+        );
+    }
+
+    #[test]
+    fn a_browser_is_not_pushed_what_its_pages_show() {
+        let watching = Arc::new(Watching::default());
+        let _shown = watching.watch("phone", "s1");
+        assert!(browser_holds_back(
+            &watching,
+            "phone",
+            "s1",
+            PushKind::Approval
+        ));
+        assert!(!browser_holds_back(
+            &watching,
+            "phone",
+            "s2",
+            PushKind::Finished
+        ));
+        let _front = watching.focus("phone");
+        assert!(browser_holds_back(
+            &watching,
+            "phone",
+            "s2",
+            PushKind::Finished
+        ));
+        assert!(!browser_holds_back(
+            &watching,
+            "phone",
+            "s2",
+            PushKind::Approval
+        ));
     }
 
     #[test]

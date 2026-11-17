@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- A desktop app for Linux, macOS and Windows runs Meka Studio with a Meka of its own.
+- The desktop app keeps its Meka's config and sessions apart from any other Meka on the computer.
+- Closing the desktop app's window keeps Meka running in the tray, or quits, as you choose.
+- The desktop app shows system notifications, and restarts Meka from Settings → About.
+- The desktop app asks GitHub for a newer release once a day, which can be turned off.
+- On Windows and macOS, the desktop app's window has its buttons in Meka Studio's top row.
+
+### Changed
+
+- Building from source with `cargo build` needs WebKitGTK on Linux; `-p meka-studio` skips the app.
+- Before Meka has a profile, a new conversation shows a button to Providers in place of the input.
+- Reading options show Offset only where it can move the conversation.
+
 ## [0.43.0] - 2026-11-16
 
 ### Added

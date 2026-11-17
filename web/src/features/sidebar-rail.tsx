@@ -1,5 +1,5 @@
 import { PanelLeftOpen, Plus, Search, Settings, UserRound } from 'lucide-react';
-import { useConnection } from '../connections/context';
+import { useConnection, useDesktopApp } from '../connections/context';
 import { Button } from '../components/ui/button';
 import { MekaLogo } from '../components/layout';
 import { useOpenSettings } from '../components/settings-control';
@@ -26,6 +26,7 @@ export function SidebarRail({
 }) {
   const openSettings = useOpenSettings();
   const { account, info } = useConnection();
+  const desktopApp = useDesktopApp();
   return (
     <div className="sidebar-rail">
       <Button
@@ -78,7 +79,7 @@ export function SidebarRail({
         <Search size={17} />
       </Button>
       <span className="sidebar-rail-gap" />
-      {account && (
+      {account && !desktopApp && (
         <Button
           variant="ghost"
           size="icon"

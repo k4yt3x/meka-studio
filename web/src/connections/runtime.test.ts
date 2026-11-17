@@ -19,6 +19,7 @@ const account: Gateway['SessionView'] = {
   fresh_seconds: 600,
   passkeys_available: true,
   has_passkeys: false,
+  desktop: false,
 };
 type Route = (url: URL, init: RequestInit | undefined) => Response | Promise<Response>;
 const runtimes: ConnectionRuntime[] = [];

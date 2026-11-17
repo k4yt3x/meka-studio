@@ -186,8 +186,21 @@ pub(crate) struct Store {
 }
 
 impl Store {
+    /// The database in the state folder `folder`, making the folder, readable by its owner alone,
+    /// if it is not there.
+    pub(crate) fn open_in(folder: &Path) -> anyhow::Result<Self> {
+        let mut builder = std::fs::DirBuilder::new();
+        builder.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        builder
+            .create(folder)
+            .with_context(|| format!("could not make {}", folder.display()))?;
+        Self::open(&folder.join("meka-studio.db"))
+    }
+
     /// The database at `path`, made and brought up to date.
-    pub(crate) fn open(path: &Path) -> anyhow::Result<Self> {
+    fn open(path: &Path) -> anyhow::Result<Self> {
         let connection = Connection::open(path)
             .with_context(|| format!("could not open the database at {}", path.display()))?;
         Self::prepare(connection)
@@ -543,6 +556,21 @@ impl Store {
             connection.execute(
                 "UPDATE login_sessions SET verified_at = ?1 WHERE id = ?2",
                 params![at, id],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Makes every sign-in two years old, last used a year ago.
+    #[cfg(test)]
+    pub(crate) async fn age_sessions_for_test(&self) -> anyhow::Result<()> {
+        let created = (Utc::now() - chrono::Duration::days(730)).to_rfc3339();
+        let seen = (Utc::now() - chrono::Duration::days(365)).to_rfc3339();
+        self.call(move |connection| {
+            connection.execute(
+                "UPDATE login_sessions SET created_at = ?1, last_seen_at = ?2",
+                params![created, seen],
             )?;
             Ok(())
         })

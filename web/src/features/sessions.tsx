@@ -28,6 +28,7 @@ import { download, segment, sessionPath, type Schema } from '../api/client';
 import {
   useCan,
   useConnection,
+  useDesktopApp,
   useGateway,
   useResource,
   useRuntime,
@@ -104,6 +105,7 @@ export function SessionsPage({
   page?: SidebarPage | undefined;
 }) {
   const state = useConnection();
+  const desktopApp = useDesktopApp();
   const runtime = useRuntime();
   const openSettings = useOpenSettings();
   const canRead = useCan('sessions:r');
@@ -462,14 +464,16 @@ export function SessionsPage({
             <Settings size={16} />
             Settings
           </Button>
-          <Button
-            variant="secondary"
-            disabled={action.busy}
-            onClick={() => void action.run(() => runtime.signOut())}
-          >
-            <LogOut size={16} />
-            Sign out
-          </Button>
+          {!desktopApp && (
+            <Button
+              variant="secondary"
+              disabled={action.busy}
+              onClick={() => void action.run(() => runtime.signOut())}
+            >
+              <LogOut size={16} />
+              Sign out
+            </Button>
+          )}
         </div>
         <ErrorNotice error={action.error} />
       </Empty>
@@ -549,7 +553,7 @@ export function SessionsPage({
               key={headingKey}
               beside={shown.wide}
               header={
-                <header className="session-toolbar">
+                <header className="session-toolbar" data-tauri-drag-region="deep">
                   <Button
                     variant="ghost"
                     size={id ? 'icon' : 'default'}
@@ -1282,7 +1286,7 @@ function WorkspacePage({ page }: { page: SidebarPage }) {
       className="workspace-page"
       aria-label={SIDEBAR_PAGES.find((each) => each.id === page)?.name}
     >
-      <header className="session-toolbar page-toolbar">
+      <header className="session-toolbar page-toolbar" data-tauri-drag-region="deep">
         <Button variant="ghost" className="mobile-back" onClick={() => setMobileSessionsOpen(true)}>
           <ChevronLeft size={18} aria-hidden="true" />
           <span>Sessions</span>

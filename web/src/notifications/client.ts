@@ -302,6 +302,8 @@ export class BrowserNotifications {
    */
   async loadPush() {
     this.inspect();
+    // The desktop app's window is told of turns by system notifications, not push.
+    if (this.runtime.getSnapshot().account?.desktop) return;
     try {
       const push = await this.runtime.gateway.get<Gateway['PushState']>('/api/push');
       let subscribed = push.subscribed;

@@ -25,8 +25,9 @@ const account = {
   fresh_seconds: 600,
   passkeys_available: true,
   has_passkeys: false,
+  desktop: false,
 };
-function fixture({ pushEnabled = true, subscribed = false } = {}) {
+function fixture({ pushEnabled = true, subscribed = false, desktop = false } = {}) {
   vi.mocked(claimNotification).mockResolvedValue(true);
   const url = new URL('https://meka-studio.test/');
   const window = Object.assign(new EventTarget(), {
@@ -103,7 +104,7 @@ function fixture({ pushEnabled = true, subscribed = false } = {}) {
   let state: RuntimeState = {
     auth: 'signed-in',
     busy: false,
-    account,
+    account: { ...account, desktop },
     controller,
     connection: { id: 'meka-studio', name: 'phone', endpoint: '', authority: 'device-1' },
   };
@@ -212,6 +213,14 @@ it('says when the browser dropped a subscription Meka Studio still has', async (
   f.start();
   await vi.waitFor(() => expect(f.runtime.notifications.getSnapshot().push).toBeDefined());
   expect(f.runtime.notifications.getSnapshot().push?.subscribed).toBe(false);
+});
+
+it('asks nothing of push in the desktop app, which shows system notifications', async () => {
+  const f = fixture({ desktop: true });
+  f.start();
+  await f.runtime.notifications.loadPush();
+  expect(f.requests.some((request) => request.path.startsWith('/api/push'))).toBe(false);
+  expect(f.runtime.notifications.getSnapshot().push).toBeUndefined();
 });
 
 it('explains Home Screen installation in an iOS browser tab', () => {

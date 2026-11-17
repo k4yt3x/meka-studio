@@ -289,7 +289,8 @@ function useOffsetRange(
   maxWidth: ReadingOptions['maxWidth'],
 ) {
   const [range, setRange] = useState<OffsetRange>();
-  useEffect(() => {
+  // Measured before the options are painted, which show the offset only where it can move.
+  useLayoutEffect(() => {
     const node = pane.current;
     const measure = () =>
       setRange((current) => {
@@ -361,12 +362,10 @@ function ReadingOptionsForm({ value }: { value: ReadingState }) {
   const range = useOffsetRange(pane, anchor, options.maxWidth);
   // Centered in its area in place of the page, the conversation takes no offset.
   const unmoved = anchor !== options.anchor;
+  // The offset is left out where it cannot move the conversation: centered in its area, or with no
+  // room beside it at this width.
   const movable = !unmoved && range !== undefined && range.max > range.min;
-  const shown = unmoved
-    ? 0
-    : range
-      ? Math.max(range.min, Math.min(range.max, options.offset))
-      : options.offset;
+  const shown = movable ? Math.max(range.min, Math.min(range.max, options.offset)) : 0;
   // Dragging near center settles on it, so returning to 0 needs no precision. Keys step exactly,
   // since a snap would pull a single step from 0 straight back.
   const snap = range ? Math.max(3, (range.max - range.min) * 0.02) : 0;
@@ -442,70 +441,68 @@ function ReadingOptionsForm({ value }: { value: ReadingState }) {
             ))}
           </div>
         </div>
-        <div className="reading-option-row">
-          <label htmlFor={id + '-offset'}>Offset</label>
-          <PixelInput
-            key={`offset-${generation}`}
-            id={id + '-offset'}
-            name="offset"
-            label="Offset"
-            value={options.offset}
-            step={CONVERSATION_OFFSET.step}
-            min={-CONVERSATION_OFFSET.limit}
-            hint="Negative moves it left. Press Enter to apply."
-            onCommit={(offset) => {
-              if (typeof offset === 'number')
-                change({ offset: normalizeConversationOffset(offset) });
-            }}
-          />
-        </div>
-        <div className="reading-offset">
-          <div
-            className="reading-offset-track"
-            style={
-              movable && range.min <= 0 && range.max >= 0
-                ? ({ '--zero': -range.min / (range.max - range.min) } as CSSProperties)
-                : undefined
-            }
-          >
-            <input
-              type="range"
-              aria-label="Offset slider"
-              aria-valuetext={describeOffset(shown)}
-              title="Drag to the notch to remove the offset"
-              min={range?.min ?? 0}
-              max={range?.max ?? 0}
-              step={1}
-              value={shown}
-              disabled={!movable}
-              onPointerDown={() => {
-                dragging.current = true;
-                holdGuide(true);
-                // The release can land outside the slider.
-                const end = () => {
-                  dragging.current = false;
-                  holdGuide(false);
-                  window.removeEventListener('pointerup', end);
-                  window.removeEventListener('pointercancel', end);
-                };
-                window.addEventListener('pointerup', end);
-                window.addEventListener('pointercancel', end);
-              }}
-              onChange={(event) => {
-                const next = Number(event.target.value);
-                change({ offset: dragging.current && Math.abs(next) <= snap ? 0 : next });
-              }}
-            />
-          </div>
-          {unmoved ? (
-            <p>Centered in its area here, so the offset does not apply.</p>
-          ) : !movable ? (
-            <p>No room to move the conversation at this width.</p>
-          ) : (
-            options.offset !== 0 &&
-            shown !== options.offset && <p>Limited to {formatOffset(shown)} at this width.</p>
-          )}
-        </div>
+        {movable && (
+          <>
+            <div className="reading-option-row">
+              <label htmlFor={id + '-offset'}>Offset</label>
+              <PixelInput
+                key={`offset-${generation}`}
+                id={id + '-offset'}
+                name="offset"
+                label="Offset"
+                value={options.offset}
+                step={CONVERSATION_OFFSET.step}
+                min={-CONVERSATION_OFFSET.limit}
+                hint="Negative moves it left. Press Enter to apply."
+                onCommit={(offset) => {
+                  if (typeof offset === 'number')
+                    change({ offset: normalizeConversationOffset(offset) });
+                }}
+              />
+            </div>
+            <div className="reading-offset">
+              <div
+                className="reading-offset-track"
+                style={
+                  range.min <= 0 && range.max >= 0
+                    ? ({ '--zero': -range.min / (range.max - range.min) } as CSSProperties)
+                    : undefined
+                }
+              >
+                <input
+                  type="range"
+                  aria-label="Offset slider"
+                  aria-valuetext={describeOffset(shown)}
+                  title="Drag to the notch to remove the offset"
+                  min={range.min}
+                  max={range.max}
+                  step={1}
+                  value={shown}
+                  onPointerDown={() => {
+                    dragging.current = true;
+                    holdGuide(true);
+                    // The release can land outside the slider.
+                    const end = () => {
+                      dragging.current = false;
+                      holdGuide(false);
+                      window.removeEventListener('pointerup', end);
+                      window.removeEventListener('pointercancel', end);
+                    };
+                    window.addEventListener('pointerup', end);
+                    window.addEventListener('pointercancel', end);
+                  }}
+                  onChange={(event) => {
+                    const next = Number(event.target.value);
+                    change({ offset: dragging.current && Math.abs(next) <= snap ? 0 : next });
+                  }}
+                />
+              </div>
+              {options.offset !== 0 && shown !== options.offset && (
+                <p>Limited to {formatOffset(shown)} at this width.</p>
+              )}
+            </div>
+          </>
+        )}
       </div>
       <div className="reading-options-footer">
         <Button

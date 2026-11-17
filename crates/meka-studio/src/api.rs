@@ -1,9 +1,11 @@
 //! Meka Studio's own API, under `/api/`: signing in, the account and its devices, synced
-//! preferences, how Meka stands, Files and git, terminals and push notifications. Its OpenAPI
-//! document is what `meka-studio openapi` prints, from which the interface's types are generated.
+//! preferences, how Meka stands, Files and git, terminals, push notifications, and the desktop
+//! app's settings. Its OpenAPI document is what `meka-studio openapi` prints, from which the
+//! interface's types are generated.
 
 pub(crate) mod account;
 pub(crate) mod auth;
+pub(crate) mod desktop;
 pub(crate) mod files;
 pub(crate) mod git;
 pub(crate) mod push;
@@ -40,7 +42,14 @@ struct ApiDoc;
 /// The API's documented routes.
 pub(crate) fn routes() -> OpenApiRouter<App> {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
-        .routes(routes!(auth::session))
+        .merge(accounts())
+        .merge(signed_in())
+}
+
+/// Signing in, and managing the account's sign-ins, passkeys and push subscriptions, which the
+/// desktop app's window has none of.
+pub(crate) fn accounts() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
         .routes(routes!(auth::sign_in_with_password))
         .routes(routes!(auth::passkey_sign_in_challenge))
         .routes(routes!(auth::sign_in_with_passkey))
@@ -56,6 +65,17 @@ pub(crate) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(account::rename_device, account::sign_out_device))
         .routes(routes!(account::sign_out_others))
         .routes(routes!(account::sign_in_log))
+        .routes(routes!(push::push_state))
+        .routes(routes!(push::subscribe, push::unsubscribe))
+        .routes(routes!(push::test_push))
+        .layer(DefaultBodyLimit::max(MAX_JSON_BYTES))
+}
+
+/// Everything else: who is signed in, synced preferences, how Meka stands, Files and git,
+/// terminals, and the desktop app's settings.
+pub(crate) fn signed_in() -> OpenApiRouter<App> {
+    OpenApiRouter::new()
+        .routes(routes!(auth::session))
         .routes(routes!(account::preferences, account::save_preferences))
         .routes(routes!(status::status))
         .routes(routes!(files::list))
@@ -72,9 +92,12 @@ pub(crate) fn routes() -> OpenApiRouter<App> {
         .routes(routes!(git::status))
         .routes(routes!(terminal::terminals, terminal::open_terminal))
         .routes(routes!(terminal::close_terminal))
-        .routes(routes!(push::push_state))
-        .routes(routes!(push::subscribe, push::unsubscribe))
-        .routes(routes!(push::test_push))
+        .routes(routes!(desktop::enter))
+        .routes(routes!(desktop::state))
+        .routes(routes!(desktop::save_settings))
+        .routes(routes!(desktop::restart_meka))
+        .routes(routes!(desktop::open_logs))
+        .routes(routes!(desktop::test_notification))
         // Saving text takes a larger body than the rest; within, its limit is what holds.
         .merge(
             OpenApiRouter::new()

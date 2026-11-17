@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
-import { useRuntime, useSettings } from '../connections/context';
+import { useDesktopApp, useRuntime, useSettings } from '../connections/context';
+import { DesktopNotificationSettings } from '../features/desktop';
 import { Button } from '../components/ui/button';
 import { SwitchField } from '../components/ui/switch';
 
@@ -7,6 +8,7 @@ export function NotificationSettings() {
   const { notifications } = useRuntime();
   const settings = useSettings();
   const state = useSyncExternalStore(notifications.subscribe, notifications.getSnapshot);
+  const desktopApp = useDesktopApp();
   const enabled = Boolean(state.push?.subscribed) && state.permission === 'granted';
   const problem =
     state.push && !state.push.enabled
@@ -22,36 +24,42 @@ export function NotificationSettings() {
               : state.error;
   return (
     <section className="panel">
-      <div className="notification-settings-row">
-        <SwitchField
-          label="Push notifications on this device"
-          id="push-notifications"
-          aria-describedby="notification-description"
-          checked={enabled}
-          disabled={
-            state.busy ||
-            state.availability !== 'available' ||
-            state.permission === 'denied' ||
-            !state.push?.enabled
-          }
-          onCheckedChange={(checked) => {
-            if (checked) void notifications.enable();
-            else void notifications.disable();
-          }}
-        />
-        <Button
-          variant="secondary"
-          size="sm"
-          aria-label="Send a test push notification"
-          disabled={!enabled || state.busy}
-          onClick={() => void notifications.test()}
-        >
-          Test
-        </Button>
-      </div>
-      <p id="notification-description" className="muted notification-description" role="status">
-        {problem ?? 'When a turn ends or waits for approval, even with Meka Studio closed.'}
-      </p>
+      {desktopApp ? (
+        <DesktopNotificationSettings />
+      ) : (
+        <>
+          <div className="notification-settings-row">
+            <SwitchField
+              label="Push notifications on this device"
+              id="push-notifications"
+              aria-describedby="notification-description"
+              checked={enabled}
+              disabled={
+                state.busy ||
+                state.availability !== 'available' ||
+                state.permission === 'denied' ||
+                !state.push?.enabled
+              }
+              onCheckedChange={(checked) => {
+                if (checked) void notifications.enable();
+                else void notifications.disable();
+              }}
+            />
+            <Button
+              variant="secondary"
+              size="sm"
+              aria-label="Send a test push notification"
+              disabled={!enabled || state.busy}
+              onClick={() => void notifications.test()}
+            >
+              Test
+            </Button>
+          </div>
+          <p id="notification-description" className="muted notification-description" role="status">
+            {problem ?? 'When a turn ends or waits for approval, even with Meka Studio closed.'}
+          </p>
+        </>
+      )}
       <div className="notification-settings-row">
         <SwitchField
           label="In-app notifications"

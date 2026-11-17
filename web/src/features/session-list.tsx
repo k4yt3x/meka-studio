@@ -443,7 +443,7 @@ export function SessionList({
   useShortcut('nextSession', () => moveSession(1), !pending && !error);
   return (
     <>
-      <header>
+      <header data-tauri-drag-region="deep">
         <span className="sidebar-brand">
           <MekaLogo />
           Meka Studio

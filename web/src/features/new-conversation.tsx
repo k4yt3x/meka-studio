@@ -7,7 +7,7 @@ import { DEFAULT_INPUT_HEIGHT, emptyComposerOptions } from '../session/composer-
 import { MessageComposer } from '../components/message-composer';
 import { Field, ErrorNotice } from '../components/common';
 import { NoticeMessage } from '../components/notice-message';
-import { SettingsLink } from '../components/settings-link';
+import { useOpenSettings } from '../components/settings-control';
 import { Button } from '../components/ui/button';
 import { Dialog } from '../components/ui/dialog';
 import { useSessionNavigation } from './session-navigation';
@@ -22,6 +22,7 @@ export function NewConversation() {
   const { controller, connection, info } = useConnection();
   const { storage } = useRuntime();
   const { newConversation: creation, setMobileSessionsOpen } = useSessionNavigation();
+  const openSettings = useOpenSettings();
   const canWrite = useCan('sessions:w');
   const draft = useTextDraft(storage, connection?.id ?? '', 'new');
   // A path picked in Files is added to the message being written.
@@ -62,19 +63,21 @@ export function NewConversation() {
       <div className="conversation-scroll">
         <div className="new-conversation-content">
           <header className="conversation-width new-session-intro">
-            <h1>New conversation</h1>
+            {noProfile ? (
+              <>
+                <h1>Add a model to start</h1>
+                <p className="muted">Sign in to a provider and pick a model in Providers.</p>
+                <div className="new-session-setup">
+                  <Button onClick={() => openSettings('providers')}>Open Providers</Button>
+                </div>
+              </>
+            ) : (
+              <h1>New conversation</h1>
+            )}
             {!canWrite && <p className="muted small">This connection is read only.</p>}
             {/* The recovery notice explains an unconfirmed creation in place of its generic error. */}
             <ErrorNotice error={creation.uncertain ? undefined : creation.error} />
             <ErrorNotice error={error ?? profiles.error} />
-            {noProfile && (
-              <p className="notice">
-                <span>
-                  Meka has no profile yet.{' '}
-                  <SettingsLink section="providers">Add one in Providers</SettingsLink> to start.
-                </span>
-              </p>
-            )}
             {creation.uncertain && (
               <div className="new-session-recovery">
                 <NoticeMessage
@@ -116,82 +119,84 @@ export function NewConversation() {
               </div>
             )}
           </header>
-          <MessageComposer
-            text={draft.text}
-            onTextChange={draft.setText}
-            readOnly={!canWrite}
-            pending={creation.busy}
-            placeholder={creation.busy ? 'Creating session…' : 'Ask Meka to work on something…'}
-            focusId="new"
-            inputHeight={height}
-            onResize={setHeight}
-            resizeGeneration={0}
-            onError={setError}
-            permission={{
-              value: creation.settings.permission || info?.default_permission,
-              options: info?.enabled_permissions ?? [],
-              disabled,
-              onChange: (permission) => creation.setSettings({ ...creation.settings, permission }),
-            }}
-            profile={{
-              value:
-                creation.settings.profile ||
-                profiles.data?.profiles.find((profile) => profile.default)?.name,
-              profiles: profiles.data?.profiles ?? [],
-              disabled: disabled || !profiles.data?.profiles.length,
-              busy: false,
-              locked: false,
-              onChange: (profile) => creation.setSettings({ ...creation.settings, profile }),
-            }}
-            project={
-              <ProjectSelect
-                value={project}
-                disabled={disabled}
-                onChange={(name) => creation.setSettings({ ...creation.settings, project: name })}
-              />
-            }
-            attachments={{
-              value: options.images,
-              disabled,
-              onChange: (update) =>
-                updateOptions({ images: update(controller?.draft('new')?.images ?? []) }),
-            }}
-            action={{
-              kind: 'send',
-              disabled:
-                disabled ||
-                noProfile ||
-                creation.uncertain ||
-                (!draft.text.trim() && !options.images.length && !options.skill),
-              busy: creation.busy,
-              run: () => void send(),
-            }}
-            settings={{ disabled, busy: false, open: () => setSettingsOpen(true) }}
-          >
-            <div className="new-session-context">
-              <WorkingDirectoryPicker
-                value={creation.settings.workingDirectory}
-                disabled={disabled}
-                onChange={(workingDirectory) =>
-                  creation.setSettings({ ...creation.settings, workingDirectory })
-                }
-              />
-            </div>
-            <Dialog open={settingsOpen} onOpenChange={setSettingsOpen} title="Session settings">
-              {settingsOpen && (
-                <NewSessionOptions
-                  approvals={creation.settings.approvals}
-                  options={options}
+          {!noProfile && (
+            <MessageComposer
+              text={draft.text}
+              onTextChange={draft.setText}
+              readOnly={!canWrite}
+              pending={creation.busy}
+              placeholder={creation.busy ? 'Creating session…' : 'Ask Meka to work on something…'}
+              focusId="new"
+              inputHeight={height}
+              onResize={setHeight}
+              resizeGeneration={0}
+              onError={setError}
+              permission={{
+                value: creation.settings.permission || info?.default_permission,
+                options: info?.enabled_permissions ?? [],
+                disabled,
+                onChange: (permission) =>
+                  creation.setSettings({ ...creation.settings, permission }),
+              }}
+              profile={{
+                value:
+                  creation.settings.profile ||
+                  profiles.data?.profiles.find((profile) => profile.default)?.name,
+                profiles: profiles.data?.profiles ?? [],
+                disabled: disabled || !profiles.data?.profiles.length,
+                busy: false,
+                locked: false,
+                onChange: (profile) => creation.setSettings({ ...creation.settings, profile }),
+              }}
+              project={
+                <ProjectSelect
+                  value={project}
                   disabled={disabled}
-                  onSave={(approvals, values) => {
-                    creation.setSettings({ ...creation.settings, approvals });
-                    updateOptions(values);
-                    setSettingsOpen(false);
-                  }}
+                  onChange={(name) => creation.setSettings({ ...creation.settings, project: name })}
                 />
-              )}
-            </Dialog>
-          </MessageComposer>
+              }
+              attachments={{
+                value: options.images,
+                disabled,
+                onChange: (update) =>
+                  updateOptions({ images: update(controller?.draft('new')?.images ?? []) }),
+              }}
+              action={{
+                kind: 'send',
+                disabled:
+                  disabled ||
+                  creation.uncertain ||
+                  (!draft.text.trim() && !options.images.length && !options.skill),
+                busy: creation.busy,
+                run: () => void send(),
+              }}
+              settings={{ disabled, busy: false, open: () => setSettingsOpen(true) }}
+            >
+              <div className="new-session-context">
+                <WorkingDirectoryPicker
+                  value={creation.settings.workingDirectory}
+                  disabled={disabled}
+                  onChange={(workingDirectory) =>
+                    creation.setSettings({ ...creation.settings, workingDirectory })
+                  }
+                />
+              </div>
+              <Dialog open={settingsOpen} onOpenChange={setSettingsOpen} title="Session settings">
+                {settingsOpen && (
+                  <NewSessionOptions
+                    approvals={creation.settings.approvals}
+                    options={options}
+                    disabled={disabled}
+                    onSave={(approvals, values) => {
+                      creation.setSettings({ ...creation.settings, approvals });
+                      updateOptions(values);
+                      setSettingsOpen(false);
+                    }}
+                  />
+                )}
+              </Dialog>
+            </MessageComposer>
+          )}
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 //! The server: everything a request may need, the routes, and the checks every request passes.
 
-use std::{net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
+use std::{future::Future, net::SocketAddr, ops::Deref, sync::Arc, time::Duration};
 
 use axum::{
     Router,
@@ -22,6 +22,7 @@ use crate::{
     api,
     auth::{ABSOLUTE_LIFETIME, Auth, IDLE_LIFETIME},
     config::Config,
+    desktop::{Desktop, Entry, Host},
     error::ApiError,
     files::Files,
     git::Git,
@@ -50,6 +51,8 @@ pub(crate) struct AppInner {
     pub(crate) git: Git,
     pub(crate) terminals: Arc<Terminals>,
     pub(crate) push: Arc<Push>,
+    /// The desktop app this server runs in, if it does.
+    pub(crate) desktop: Option<Desktop>,
 }
 
 /// The server's state, shared by every request.
@@ -67,8 +70,46 @@ impl Deref for App {
 impl App {
     /// The server for `config`, keeping its state in `store`.
     pub(crate) async fn open(config: Config, store: Store) -> anyhow::Result<Self> {
-        let auth = Auth::new(&config, store.clone())?;
+        let auth = Self::auth(&config, &store, true).await?;
+        Self::assemble(config, store, auth, None).await
+    }
+
+    /// The server for `config` inside the desktop app `host`, keeping its state in `store`, and
+    /// the ticket its window comes in with.
+    pub(crate) async fn open_desktop(
+        config: Config,
+        store: Store,
+        host: Arc<dyn Host>,
+    ) -> anyhow::Result<(Self, String)> {
+        let auth = Self::auth(&config, &store, false).await?;
+        let (session, token) = auth.desktop_sign_in().await?;
+        let ticket = crate::auth::random_token()?;
+        let desktop = Desktop {
+            host,
+            device: session.id,
+            entry: Arc::new(std::sync::Mutex::new(Some(Entry {
+                ticket: ticket.clone(),
+                token,
+            }))),
+        };
+        let app = Self::assemble(config, store, auth, Some(desktop)).await?;
+        Ok((app, ticket))
+    }
+
+    /// Signing in for `config`, with sign-ins kept in `store` and ending in time if `expiring`.
+    async fn auth(config: &Config, store: &Store, expiring: bool) -> anyhow::Result<Auth> {
+        let auth = Auth::new(config, store.clone(), expiring)?;
         auth.hasher().prepare().await?;
+        Ok(auth)
+    }
+
+    /// The server from its parts, inside `desktop` if it runs in the desktop app.
+    async fn assemble(
+        config: Config,
+        store: Store,
+        auth: Auth,
+        desktop: Option<Desktop>,
+    ) -> anyhow::Result<Self> {
         let meka = Meka::new(&config)?;
         let watching = Arc::new(Watching::default());
         let files = Files::new(store.clone());
@@ -79,6 +120,7 @@ impl App {
             Arc::clone(&meka),
             Arc::clone(&watching),
             Arc::clone(&terminals),
+            desktop.clone(),
         )
         .await?;
         Ok(Self(Arc::new(AppInner {
@@ -91,6 +133,7 @@ impl App {
             git: Git::new(),
             terminals,
             push,
+            desktop,
         })))
     }
 
@@ -109,7 +152,18 @@ impl App {
         });
     }
 
-    async fn sweep(&self) {
+    /// Clears away what has expired: sign-ins past their lifetimes, where sign-ins expire, and
+    /// abandoned uploads.
+    pub(crate) async fn sweep(&self) {
+        if self.auth.expiring() {
+            self.end_expired_sign_ins().await;
+        }
+        if let Err(error) = self.files.sweep_uploads().await {
+            tracing::error!("could not clear abandoned uploads: {error:#}");
+        }
+    }
+
+    async fn end_expired_sign_ins(&self) {
         let now = Utc::now();
         let unused_since = now - chrono::Duration::from_std(IDLE_LIFETIME).unwrap_or_default();
         let created_before =
@@ -126,16 +180,17 @@ impl App {
             }
             Err(error) => tracing::error!("could not end expired sign-ins: {error:#}"),
         }
-        if let Err(error) = self.files.sweep_uploads().await {
-            tracing::error!("could not clear abandoned uploads: {error:#}");
-        }
     }
 }
 
 /// The routes, with the checks every request passes.
 pub(crate) fn router(app: &App) -> anyhow::Result<Router> {
     let headers = SecurityHeaders::new(&app.config.public_origin)?;
-    let (api, _) = api::routes().split_for_parts();
+    let accounts = api::accounts().route_layer(middleware::from_fn_with_state(
+        app.clone(),
+        refuse_in_desktop,
+    ));
+    let (api, _) = accounts.merge(api::signed_in()).split_for_parts();
     let api = api
         .merge(api::uploads())
         .merge(api::sockets())
@@ -200,6 +255,15 @@ async fn check_origin(State(app): State<App>, request: Request, next: Next) -> R
     next.run(request).await
 }
 
+/// Refuses signing in, and managing sign-ins, passkeys and push subscriptions, in the desktop app,
+/// whose window signs itself in and has none of these to manage.
+async fn refuse_in_desktop(State(app): State<App>, request: Request, next: Next) -> Response {
+    if app.desktop.is_some() {
+        return ApiError::disabled("The desktop app signs its window in itself.").into_response();
+    }
+    next.run(request).await
+}
+
 /// Whether a request says it comes from Meka Studio's own pages. An `Origin` that is there but
 /// cannot be read is not believed to be one.
 pub(crate) fn is_same_origin(app: &App, headers: &axum::http::HeaderMap) -> bool {
@@ -216,8 +280,17 @@ pub(crate) fn is_same_origin(app: &App, headers: &axum::http::HeaderMap) -> bool
 
 /// Serves `app` until the process is told to stop.
 pub(crate) async fn serve(app: App) -> anyhow::Result<()> {
-    let router = router(&app)?;
     let listener = tokio::net::TcpListener::bind(app.config.listen).await?;
+    serve_on(app, listener, shutdown()).await
+}
+
+/// Serves `app` on `listener` until `stop` completes.
+pub(crate) async fn serve_on(
+    app: App,
+    listener: tokio::net::TcpListener,
+    stop: impl Future<Output = ()> + Send + 'static,
+) -> anyhow::Result<()> {
+    let router = router(&app)?;
     tracing::info!(
         "Meka Studio {} listens on {}, for {}",
         env!("CARGO_PKG_VERSION"),
@@ -237,7 +310,8 @@ pub(crate) async fn serve(app: App) -> anyhow::Result<()> {
         let app = app.clone();
         let stopped = Arc::clone(&stopped);
         async move {
-            shutdown().await;
+            stop.await;
+            tracing::info!("stopping");
             // Event streams and terminals end now, rather than holding the stop up.
             app.auth.stop();
             stopped.notify_one();
@@ -295,5 +369,4 @@ async fn shutdown() {
         }
         () = terminate => {}
     }
-    tracing::info!("stopping");
 }
