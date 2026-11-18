@@ -2,7 +2,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { useId, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { Check, ChevronDown, Folder, FolderPlus, Server } from 'lucide-react';
 import type { Schema } from '../api/client';
-import { useCan, useResource, useRuntime } from '../connections/context';
+import { useCan, useConnection, useResource, useRuntime } from '../connections/context';
 import { useAction } from '../components/actions';
 import { ErrorNotice } from '../components/common';
 import type { Gateway } from '../api/gateway';
@@ -36,6 +36,9 @@ export function WorkingDirectoryPicker({
   );
   const recent = recentDirectories(sessions.data?.sessions ?? []);
   const current = value.trim();
+  // Where Meka puts a session that names no folder, where Meka says.
+  const fallback = useConnection().info?.default_working_directory ?? '';
+  const shown = current || fallback;
   const runtime = useRuntime();
   const making = useAction();
   const [made, setMade] = useState('');
@@ -65,12 +68,12 @@ export function WorkingDirectoryPicker({
           size="sm"
           className="directory-trigger"
           disabled={disabled}
-          aria-label={`Working directory: ${current || 'server default'}`}
-          title={current || 'Server default working directory'}
+          aria-label={`Working directory: ${current || (fallback ? `server default, ${fallback}` : 'server default')}`}
+          title={shown || 'Server default working directory'}
         >
           <Folder size={15} aria-hidden="true" />
           <span className="directory-trigger-label">
-            {current ? directoryLabel(current).name : 'Default directory'}
+            {shown ? directoryLabel(shown).name : 'Default directory'}
           </span>
           <ChevronDown size={14} aria-hidden="true" />
         </Button>
@@ -140,7 +143,7 @@ export function WorkingDirectoryPicker({
           <DirectoryOption
             icon={<Server size={15} aria-hidden="true" />}
             name="Server default"
-            detail="Meka’s current directory"
+            detail={fallback || 'Meka’s current directory'}
             selected={!current}
             onSelect={() => choose('')}
           />

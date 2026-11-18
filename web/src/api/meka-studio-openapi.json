@@ -646,10 +646,21 @@
         }
       }
     },
-    "/api/desktop/logs/open": {
+    "/api/desktop/folders/{folder}/open": {
       "post": {
         "tags": ["desktop"],
-        "operationId": "open_logs",
+        "operationId": "open_folder",
+        "parameters": [
+          {
+            "name": "folder",
+            "in": "path",
+            "description": "The folder to open",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Folder"
+            }
+          }
+        ],
         "responses": {
           "204": {
             "description": "The folder is open in the file manager"
@@ -1848,7 +1859,7 @@
       "CloseAction": {
         "type": "string",
         "description": "What closing the window does.",
-        "enum": ["tray", "quit"]
+        "enum": ["ask", "tray", "quit"]
       },
       "Confirmation": {
         "type": "object",
@@ -1889,7 +1900,7 @@
           "close": {
             "$ref": "#/components/schemas/CloseAction",
             "description": "What closing the window does.",
-            "default": "tray"
+            "default": "ask"
           },
           "notifications": {
             "type": "boolean",
@@ -1901,7 +1912,7 @@
       "DesktopState": {
         "type": "object",
         "description": "How the desktop app stands.",
-        "required": ["settings", "meka", "logs"],
+        "required": ["settings", "meka", "logs", "portable"],
         "properties": {
           "logs": {
             "type": "string",
@@ -1910,6 +1921,10 @@
           "meka": {
             "$ref": "#/components/schemas/MekaProcess",
             "description": "The Meka the app runs."
+          },
+          "portable": {
+            "type": "boolean",
+            "description": "Whether the app is a portable copy, keeping everything in a folder beside it."
           },
           "settings": {
             "$ref": "#/components/schemas/DesktopSettings",
@@ -2058,6 +2073,11 @@
             "description": "Whether to replace a file of the same name."
           }
         }
+      },
+      "Folder": {
+        "type": "string",
+        "description": "A folder of the desktop app's that the interface can open in the file manager.",
+        "enum": ["config", "data", "logs"]
       },
       "GitStatus": {
         "type": "object",

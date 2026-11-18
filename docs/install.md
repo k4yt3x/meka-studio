@@ -1,22 +1,37 @@
 # Installing Meka Studio
 
-Meka Studio comes two ways. The [desktop app](#the-desktop-app) is for the computer you work on: it runs a Meka of its own, and needs nothing else set up. The server runs on a Meka host, for any browser or phone to reach; the numbered steps set it up.
+Meka Studio comes two ways. The [desktop app](#the-desktop-app), Meka Studio Desktop, is for the computer you work on: it runs a Meka of its own, and needs nothing else set up. The server runs on a Meka host, for any browser or phone to reach; the numbered steps set it up.
 
 ## The desktop app
 
-Download the installer for your computer from the [releases](https://github.com/k4yt3x/meka-studio/releases): `meka-studio-desktop-x86_64-linux.deb` or `meka-studio-desktop-x86_64-linux.AppImage`, `meka-studio-desktop-aarch64-macos.dmg` for Apple silicon, or `meka-studio-desktop-x86_64-windows-setup.exe`. These are the systems Meka has releases for. It is not signed: on macOS, move it to Applications and run `xattr -dr com.apple.quarantine "/Applications/Meka Studio.app"` before opening it; on Windows, SmartScreen asks before the installer runs. On Linux it needs WebKitGTK 4.1, which the `.deb` installs; with the AppImage, install `webkit2gtk-4.1` on Arch or `libwebkit2gtk-4.1-0` on Debian and Ubuntu.
+Download the installer for your computer from the [releases](https://github.com/k4yt3x/meka-studio/releases): `meka-studio-desktop-x86_64-linux.deb` or `meka-studio-desktop-x86_64-linux.AppImage`, `meka-studio-desktop-aarch64-macos.dmg` for Apple silicon, or `meka-studio-desktop-x86_64-windows-setup.exe`, or on Windows the [portable copy](#the-portable-copy-on-windows) `meka-studio-desktop-x86_64-windows-portable.zip`. These are the systems Meka has releases for. It is not signed: on macOS, move it to Applications and run `xattr -dr com.apple.quarantine "/Applications/Meka Studio Desktop.app"` before opening it; on Windows, SmartScreen asks before the installer or the app runs. On Linux it needs WebKitGTK 4.1, which the `.deb` installs; with the AppImage, install `webkit2gtk-4.1` on Arch or `libwebkit2gtk-4.1-0` on Debian and Ubuntu.
+
+The Windows installer installs the app for you alone, in `%LOCALAPPDATA%\Programs\Meka Studio Desktop`, unless you choose all users, which asks for an administrator. It installs Microsoft's WebView2 runtime, which draws the window, if Windows lacks it, as Windows 10 may. Each download includes the app's `LICENSE` and `THIRD-PARTY-NOTICES.txt`.
 
 The app runs the Meka it comes with, which it starts and stops itself, and keeps that Meka's config and sessions in folders of its own. It reads nothing of another Meka on the computer, so it starts with no providers: add one in **Settings → Providers**.
 
-| Folder                                       | Linux                                 | macOS                                           | Windows                               |
-| -------------------------------------------- | ------------------------------------- | ----------------------------------------------- | ------------------------------------- |
-| Settings, and Meka's config in `meka-config` | `~/.config/bot.meka.studio`           | `~/Library/Application Support/bot.meka.studio` | `%APPDATA%\bot.meka.studio`           |
-| Data, with Meka's sessions in `meka-data`    | `~/.local/share/bot.meka.studio`      | `~/Library/Application Support/bot.meka.studio` | `%APPDATA%\bot.meka.studio`           |
-| Logs                                         | `~/.local/share/bot.meka.studio/logs` | `~/Library/Logs/bot.meka.studio`                | `%LOCALAPPDATA%\bot.meka.studio\logs` |
+| Folder                                       | Linux                                        | macOS                                           | Windows                                      |
+| -------------------------------------------- | -------------------------------------------- | ----------------------------------------------- | -------------------------------------------- |
+| Settings, and Meka's config in `meka-config` | `~/.config/meka-studio-desktop`              | `~/Library/Application Support/bot.meka.studio` | `%APPDATA%\Meka Studio Desktop`              |
+| Data, with Meka's sessions in `meka-data`    | `~/.local/share/meka-studio-desktop`         | `~/Library/Application Support/bot.meka.studio` | `%APPDATA%\Meka Studio Desktop`              |
+| Logs                                         | `~/.local/share/meka-studio-desktop/logs`    | `~/Library/Logs/bot.meka.studio`                | `%LOCALAPPDATA%\Meka Studio Desktop\logs`    |
+| The window's own storage                     | `~/.local/share/meka-studio-desktop/webview` | Where macOS keeps it                            | `%LOCALAPPDATA%\Meka Studio Desktop\webview` |
 
 The `meka` command reaches the app's sessions with `MEKA_CONFIG_DIR` and `MEKA_DATA_DIR` set to its `meka-config` and `meka-data` folders, if it is the same version as the app's Meka, which **Settings → About** shows: a Meka refuses sessions a newer one has stored.
 
-To upgrade, install the new version over the old one. The app looks for a newer release once a day, and says when there is one; **Settings → General** turns that off.
+On Linux, `XDG_CONFIG_HOME` moves the first of these folders and `XDG_DATA_HOME` the others.
+
+To upgrade, install the new version over the old one; the Windows installer quits the installed app first if it runs. Uninstalling leaves the folders above, with your settings and sessions. The app looks for a newer release once a day, and says when there is one; **Settings → General** turns that off.
+
+One copy of the app runs at a time. Starting it again shows the running one's window; starting another copy shows it too, with a notification of where the running copy is.
+
+### The portable copy on Windows
+
+The portable zip holds the same app, with an empty `.portable` file beside `meka-studio-desktop.exe`. That file makes it keep everything in a `data` folder beside it: its settings, Meka's config in `meka-config` and sessions in `meka-data`, the logs in `logs`, and the window's own storage in `webview`. Unzip it to a folder you can write to, such as one on a USB drive; in a folder it cannot write to, such as `C:\Program Files`, it says so and does not start. **Settings → About** shows it as portable.
+
+It writes nothing to your profile's folders. Windows shows a program's notifications only under a name registered for it, which the installer's Start menu shortcut registers, so while system notifications are on, a portable copy registers that name under `HKEY_CURRENT_USER\Software\Classes\AppUserModelId\bot.meka.studio` and removes it when it quits or when they are turned off. Turn system notifications off in **Settings → Notifications** to keep it out of the registry.
+
+To upgrade it, quit it and unzip the new version over it; the zip has no `data` folder, so yours stays as it is.
 
 If the window stays blank or flickers on Linux with an NVIDIA graphics card, start the app with `WEBKIT_DISABLE_DMABUF_RENDERER=1` set: WebKitGTK, which draws the window, does not always work with NVIDIA's driver.
 

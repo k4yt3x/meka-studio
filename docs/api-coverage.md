@@ -1,14 +1,14 @@
 # API support
 
-Meka Studio targets **Meka 0.95.0**, commit `9c804c6ce7217b18580af3a8a18051c10c707a41`, and refuses older servers: the minimum and the verified versions are in `web/src/api/meka-versions.json`, which Meka Studio's server checks too. The interface reaches Meka through Meka Studio at `/meka/v1/…`, which adds a token with every scope. The table maps supported HTTP operations to the interface.
+Meka Studio targets **Meka 0.96.0**, commit `c3653471788139e451e8904ff9f89567d07167b9`, and refuses servers older than 0.95.0: the minimum and the verified versions are in `web/src/api/meka-versions.json`, which Meka Studio's server checks too. The interface reaches Meka through Meka Studio at `/meka/v1/…`, which adds a token with every scope. The table maps supported HTTP operations to the interface.
 
-See the [captured schema and generation instructions](api/README.md) for the wire contract and the [Meka HTTP API reference](https://github.com/k4yt3x/meka/blob/0.95.0/docs/book/src/usage/http-api.md) for server behavior.
+See the [captured schema and generation instructions](api/README.md) for the wire contract and the [Meka HTTP API reference](https://github.com/k4yt3x/meka/blob/0.96.0/docs/book/src/usage/http-api.md) for server behavior.
 
 | Method | Endpoint                                   | Interface support                                                                        |
 | ------ | ------------------------------------------ | ---------------------------------------------------------------------------------------- |
 | GET    | `/v1/health/live`                          | Connection diagnostics                                                                   |
 | GET    | `/v1/health/ready`                         | Readiness, and a pointer to Providers while no profile is configured                     |
-| GET    | `/v1/info`                                 | Version check, permissions, and scopes                                                   |
+| GET    | `/v1/info`                                 | Version check, permissions, scopes, and where a new conversation starts                  |
 | GET    | `/v1/config`                               | Config file, data folder, load time, and edits awaiting a reload or restart              |
 | POST   | `/v1/config/reload`                        | Reload config, naming the MCP servers it changed and what still needs a restart          |
 | GET    | `/v1/accounts`                             | Accounts, sign-in state, and credentials no account uses                                 |

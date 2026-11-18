@@ -30,8 +30,20 @@ pub trait Host: Send + Sync + 'static {
     fn save_settings(&self, settings: DesktopSettings) -> anyhow::Result<()>;
     /// Stops Meka and starts it again.
     fn restart_meka(&self);
-    /// Opens the folder Meka's log is in, in the system's file manager.
-    fn open_logs(&self) -> anyhow::Result<()>;
+    /// Opens `folder` in the system's file manager.
+    fn open_folder(&self, folder: Folder) -> anyhow::Result<()>;
+}
+
+/// A folder of the desktop app's that the interface can open in the file manager.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Folder {
+    /// Meka's config folder, with its `config.toml`.
+    Config,
+    /// Meka's data folder, with its sessions.
+    Data,
+    /// The logs' folder: the app's log and Meka's.
+    Logs,
 }
 
 /// A system notification: the session's title, what happened in it, and the session, which a
@@ -54,6 +66,8 @@ pub struct DesktopState {
     pub update: Option<Update>,
     /// The folder Meka's log is written to.
     pub logs: String,
+    /// Whether the app is a portable copy, keeping everything in a folder beside it.
+    pub portable: bool,
 }
 
 /// The desktop app's settings. One missing from the saved settings takes its default.
@@ -74,7 +88,13 @@ pub struct DesktopSettings {
 impl Default for DesktopSettings {
     fn default() -> Self {
         Self {
-            close: CloseAction::Tray,
+            // A closed window keeps the app running on macOS, as its apps do; elsewhere the first
+            // close asks.
+            close: if cfg!(target_os = "macos") {
+                CloseAction::Tray
+            } else {
+                CloseAction::Ask
+            },
             notifications: true,
             check_updates: true,
         }
@@ -82,11 +102,12 @@ impl Default for DesktopSettings {
 }
 
 /// What closing the window does.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CloseAction {
+    /// Asks whether to keep running in the tray or quit, and keeps the answer.
+    Ask,
     /// Hides the window; Meka and its turns keep running, and the tray icon shows it again.
-    #[default]
     Tray,
     /// Quits, stopping Meka and what runs in it.
     Quit,

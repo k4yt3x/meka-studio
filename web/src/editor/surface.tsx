@@ -52,7 +52,7 @@ const Touch = lazy(() =>
 /** The editor for a text file, as the screen suits: see {@link SurfaceProps}. */
 export function EditorSurface({ touch, ...props }: SurfaceProps & { touch: boolean }) {
   return (
-    <Suspense fallback={<Loading label="Opening the editor…" />}>
+    <Suspense fallback={<Loading label="Opening the editor…" fill />}>
       {touch ? <Touch {...props} /> : <Monaco {...props} />}
     </Suspense>
   );
@@ -61,7 +61,7 @@ export function EditorSurface({ touch, ...props }: SurfaceProps & { touch: boole
 /** A file beside what is on disk now, where the editor can show that: see {@link CompareProps}. */
 export function CompareSurface(props: CompareProps) {
   return (
-    <Suspense fallback={<Loading label="Opening the comparison…" />}>
+    <Suspense fallback={<Loading label="Opening the comparison…" fill />}>
       <MonacoCompare {...props} />
     </Suspense>
   );

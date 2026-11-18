@@ -1,4 +1,8 @@
 import { useState } from 'react';
+
+/** An action being run, with whether it is busy and how it failed. */
+export type Action = ReturnType<typeof useAction>;
+
 export function useAction(onError?: (error: unknown) => void) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>();

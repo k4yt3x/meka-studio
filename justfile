@@ -33,9 +33,11 @@ desktop: web desktop-meka
     ./target/debug/meka-studio-desktop
 
 # Needs the Tauri CLI: cargo install tauri-cli --version 2.12.5 --locked
-# Bundle the desktop app for this computer into target/release/bundle.
+# Bundle the desktop app for Linux or macOS, with its Meka, license and third-party notices, into
+# target/release/bundle. Windows' installer and portable zip are made as the Release workflow does.
 desktop-bundle: web desktop-meka
-    cd crates/meka-studio-desktop && cargo tauri build --config '{"bundle":{"resources":{"binaries/meka{{ exe }}":"meka{{ exe }}"}}}'
+    python3 crates/meka-studio-desktop/notices.py "$(rustc -vV | sed -n 's/^host: //p')" crates/meka-studio-desktop/binaries/THIRD-PARTY-NOTICES.txt
+    cd crates/meka-studio-desktop && cargo tauri build --config '{"bundle":{"resources":{"binaries/meka":"meka","../../LICENSE":"LICENSE","binaries/THIRD-PARTY-NOTICES.txt":"THIRD-PARTY-NOTICES.txt"}}}'
 
 # Run every check CI runs.
 check:

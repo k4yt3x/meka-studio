@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Meka Studio",
+  "productName": "Meka Studio Desktop",
   "mainBinaryName": "meka-studio-desktop",
   "identifier": "bot.meka.studio",
   "build": {
@@ -14,7 +14,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["deb", "appimage", "nsis", "dmg"],
+    "targets": ["deb", "appimage", "dmg"],
     "category": "DeveloperTool",
     "shortDescription": "Meka Studio, with a Meka of its own",
     "longDescription": "Meka Studio as a desktop app: it runs a Meka of its own, keeping that Meka's config and sessions apart from any other Meka on the computer.",

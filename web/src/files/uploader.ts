@@ -29,7 +29,10 @@ export interface Picked {
   file: File;
   path?: string;
 }
-/** The files picked or dropped together, dismissed together. */
+/**
+ * The files picked or dropped together, dismissed together. A batch whose uploads all landed,
+ * or were skipped or cancelled, leaves the list by itself.
+ */
 export interface UploadBatch {
   key: string;
   /** The folder it goes into, absolute. */
@@ -85,7 +88,12 @@ export class Uploads {
   private running = 0;
   /** The folders made for each batch, or being made, by path. */
   private made = new Map<string, Map<string, Promise<unknown>>>();
+  /** Batches still making the empty folders they brought. */
+  private makingFolders = new Set<UploadBatch>();
+  /** The entries of its folder that a batch's empty folders are, or are in. */
+  private emptyEntries = new WeakMap<UploadBatch, string[]>();
   private listeners = new Set<() => void>();
+  private finishing = new Set<(dir: string, entries: string[]) => void>();
   constructor(
     private gateway: GatewayClient,
     /** Called when an upload lands, with the file's path. */
@@ -95,6 +103,16 @@ export class Uploads {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
+    };
+  };
+  /**
+   * Calls `listener` as a batch that put something in its folder is done, with that folder and
+   * the entries it put there: its files, and the folders it brought.
+   */
+  onFinished = (listener: (dir: string, entries: string[]) => void) => {
+    this.finishing.add(listener);
+    return () => {
+      this.finishing.delete(listener);
     };
   };
   getSnapshot = () => {
@@ -119,11 +137,31 @@ export class Uploads {
     return this.byKey.get(key);
   }
   private patch(keys: Iterable<string>, patch: (item: UploadItem) => Partial<UploadItem>) {
+    const touched = new Set<UploadBatch>();
     for (const key of keys) {
       const found = this.byKey.get(key);
-      if (found) Object.assign(found.item, patch(found.item));
+      if (!found) continue;
+      Object.assign(found.item, patch(found.item));
+      if (!pending(found.item)) touched.add(found.batch);
     }
+    for (const batch of touched) this.settle(batch);
     this.changed();
+  }
+  /**
+   * Takes `batch` off the list once nothing in it is left to do or to see, and says what it put
+   * in its folder.
+   */
+  private settle(batch: UploadBatch) {
+    if (batch.note || this.makingFolders.has(batch) || this.gone.has(batch)) return;
+    const entries = new Set<string>();
+    for (const item of batch.items) {
+      if (pending(item) || item.state === 'exists' || item.state === 'failed') return;
+      if (item.state === 'done')
+        entries.add(item.folder ? join(batch.dir, item.folder.name) : join(item.dir, item.name));
+    }
+    for (const entry of this.emptyEntries.get(batch) ?? []) entries.add(entry);
+    this.remove(batch);
+    if (entries.size) for (const listener of this.finishing) listener(batch.dir, [...entries]);
   }
   private update(key: string, patch: Partial<UploadItem>) {
     this.patch([key], () => patch);
@@ -175,10 +213,16 @@ export class Uploads {
         folder = parent(folder);
       }
     }
-    const empty = folders
-      .map((folder) => join(dir, folder))
-      .filter((folder) => !filled.has(folder));
-    if (empty.length) void this.makeFolders(batch, empty);
+    const empty = folders.filter((folder) => !filled.has(join(dir, folder)));
+    if (empty.length) {
+      this.emptyEntries.set(batch, [
+        ...new Set(empty.map((folder) => join(dir, folder.split('/')[0]!))),
+      ]);
+      void this.makeFolders(
+        batch,
+        empty.map((folder) => join(dir, folder)),
+      );
+    }
     this.pump();
   }
   /** Uploads again over the files of the same name. */
@@ -220,11 +264,14 @@ export class Uploads {
   /** Takes a batch off the list, stopping any of it still under way. */
   dismiss(batch: string) {
     const found = this.batches.find((candidate) => candidate.key === batch);
-    if (found) this.gone.add(found);
-    for (const item of found?.items ?? []) this.forget(item.key);
-    this.batches = this.batches.filter((candidate) => candidate.key !== batch);
-    this.made.delete(batch);
+    if (found) this.remove(found);
     this.changed();
+  }
+  private remove(batch: UploadBatch) {
+    this.gone.add(batch);
+    for (const item of batch.items) this.forget(item.key);
+    this.batches = this.batches.filter((candidate) => candidate !== batch);
+    this.made.delete(batch.key);
   }
   /** Stops every upload and forgets them, as the account signs out. */
   forgetAll() {
@@ -285,6 +332,7 @@ export class Uploads {
   }
   /** Makes the folders of a batch that no file needs, said in its note when one cannot be. */
   private async makeFolders(batch: UploadBatch, paths: readonly string[]) {
+    this.makingFolders.add(batch);
     for (const path of paths) {
       try {
         await this.makeFolder(batch.key, path);
@@ -292,9 +340,11 @@ export class Uploads {
         if (batch.note || this.gone.has(batch)) continue;
         batch.note = `${path} could not be made: ${errorMessage(error)}`;
         if (!this.batches.includes(batch)) this.batches.push(batch);
-        this.changed();
       }
     }
+    this.makingFolders.delete(batch);
+    this.settle(batch);
+    this.changed();
   }
   private async run(key: string) {
     const file = this.files.get(key);

@@ -2,7 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { FolderOpen, RotateCw } from 'lucide-react';
 import type { Gateway } from '../api/gateway';
 import { gatewayKey, useConnection, useDesktopState, useRuntime } from '../connections/context';
-import { useAction } from '../components/actions';
+import { useAction, type Action } from '../components/actions';
 import { Button } from '../components/ui/button';
 import { SwitchField } from '../components/ui/switch';
 import { ErrorNotice, Field } from '../components/common';
@@ -33,6 +33,12 @@ function useSaveSettings() {
   };
 }
 
+const CLOSE_ACTIONS: Record<Gateway['CloseAction'], string> = {
+  ask: 'Ask',
+  tray: 'Keep running in tray',
+  quit: 'Quit',
+};
+
 /** The desktop app's own settings: what closing the window does, and checking for updates. */
 export function DesktopAppSettings() {
   const saving = useSaveSettings();
@@ -40,30 +46,40 @@ export function DesktopAppSettings() {
     <section className="panel">
       <h2>Desktop app</h2>
       <div className="form-stack">
-        <Field label="Closing the window">
-          <select
-            value={saving.settings?.close ?? 'tray'}
-            disabled={saving.busy}
-            onChange={(event) =>
-              saving.save({ close: event.target.value === 'quit' ? 'quit' : 'tray' })
-            }
-          >
-            <option value="tray">Keeps Meka running in the tray</option>
-            <option value="quit">Quits, stopping Meka and its turns</option>
-          </select>
-        </Field>
-        <div>
-          <SwitchField
-            label="Check for updates"
-            checked={saving.settings?.check_updates ?? false}
-            disabled={saving.busy}
-            onCheckedChange={(checked) => saving.save({ check_updates: checked })}
-          />
-          <p className="muted small">Asks GitHub once a day for a newer release.</p>
+        <div className="field-grid">
+          <Field label="Closing the window">
+            <select
+              value={saving.settings?.close ?? 'ask'}
+              disabled={saving.busy}
+              onChange={(event) => {
+                const close = closeAction(event.target.value);
+                if (close) saving.save({ close });
+              }}
+            >
+              {Object.entries(CLOSE_ACTIONS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </Field>
         </div>
+        <SwitchField
+          label="Check for updates"
+          checked={saving.settings?.check_updates ?? false}
+          disabled={saving.busy}
+          onCheckedChange={(checked) => saving.save({ check_updates: checked })}
+        />
       </div>
+      <p className="muted small">Asks GitHub once a day for a newer release.</p>
       <ErrorNotice error={saving.error} />
     </section>
+  );
+}
+
+function closeAction(value: string): Gateway['CloseAction'] | undefined {
+  return Object.keys(CLOSE_ACTIONS).find(
+    (action): action is Gateway['CloseAction'] => action === value,
   );
 }
 
@@ -111,8 +127,8 @@ const PROCESS_STATES: Record<Gateway['ProcessState'], { label: string; tone?: st
   stopped: { label: 'Stopped', tone: 'danger' },
 };
 
-/** The Meka the desktop app runs, as rows of About's facts. */
-export function MekaProcessFacts() {
+/** The Meka the desktop app runs, as rows of About's facts, the log folder opened by `folders`. */
+export function MekaProcessFacts({ folders }: { folders: Action }) {
   const state = useDesktopState(5000);
   const meka = state.data?.meka;
   if (!meka) return null;
@@ -128,9 +144,22 @@ export function MekaProcessFacts() {
         {meka.last_exit && <span className="muted small"> · Last ended with {meka.last_exit}</span>}
       </dd>
       <dt>Log folder</dt>
-      <dd>{state.data?.logs}</dd>
+      <dd>
+        {state.data?.logs}
+        <OpenFolderButton folder="logs" action={folders} inline />
+      </dd>
     </>
   );
+}
+
+/** That the desktop app is a portable copy, as a row of About's facts. */
+export function PortableFact() {
+  return useDesktopState().data?.portable ? (
+    <>
+      <dt>Mode</dt>
+      <dd>Portable</dd>
+    </>
+  ) : null;
 }
 
 /** A newer release of Meka Studio, if the desktop app found one. */
@@ -147,55 +176,65 @@ export function UpdateNotice() {
   ) : null;
 }
 
-/** Restarting the Meka the desktop app runs. */
-export function RestartMekaButton({
-  variant = 'secondary',
-}: {
-  variant?: 'default' | 'secondary';
-}) {
+/** Restarting the Meka the desktop app runs, as `action`, whose error is for the caller to show. */
+export function RestartMekaButton({ action }: { action: Action }) {
   const runtime = useRuntime();
   const queries = useQueryClient();
   const { account } = useConnection();
-  const action = useAction();
   return (
-    <>
-      <Button
-        variant={variant}
-        disabled={action.busy}
-        onClick={() =>
-          void action.run(async () => {
-            await runtime.gateway.send('POST', '/api/desktop/meka/restart');
-            await queries.invalidateQueries({
-              queryKey: gatewayKey(account?.device_id, '/api/desktop'),
-            });
-          })
-        }
-      >
-        <RotateCw size={16} className={action.busy ? 'spin' : undefined} />
-        Restart Meka
-      </Button>
-      <ErrorNotice error={action.error} />
-    </>
+    <Button
+      variant="secondary"
+      disabled={action.busy}
+      onClick={() =>
+        void action.run(async () => {
+          await runtime.gateway.send('POST', '/api/desktop/meka/restart');
+          await queries.invalidateQueries({
+            queryKey: gatewayKey(account?.device_id, '/api/desktop'),
+          });
+        })
+      }
+    >
+      <RotateCw size={16} className={action.busy ? 'spin' : undefined} />
+      Restart Meka
+    </Button>
   );
 }
 
-/** Opening the folder of Meka's log in the file manager. */
-export function OpenLogsButton() {
+const FOLDER_NAMES: Record<Gateway['Folder'], string> = {
+  config: 'config folder',
+  data: 'data folder',
+  logs: 'log folder',
+};
+
+/**
+ * Opening one of the desktop app's folders in the file manager, as `action`, whose error is for the
+ * caller to show: a button that names it, or with `inline`, an icon after the folder's path.
+ */
+export function OpenFolderButton({
+  folder,
+  action,
+  inline = false,
+}: {
+  folder: Gateway['Folder'];
+  action: Action;
+  inline?: boolean;
+}) {
   const runtime = useRuntime();
-  const action = useAction();
+  const label = `Open ${FOLDER_NAMES[folder]}`;
   return (
-    <>
-      <Button
-        variant="secondary"
-        disabled={action.busy}
-        onClick={() =>
-          void action.run(() => runtime.gateway.send('POST', '/api/desktop/logs/open'))
-        }
-      >
-        <FolderOpen size={16} />
-        Open log folder
-      </Button>
-      <ErrorNotice error={action.error} />
-    </>
+    <Button
+      variant={inline ? 'ghost' : 'secondary'}
+      size={inline ? 'icon' : 'default'}
+      className={inline ? 'open-folder' : undefined}
+      aria-label={label}
+      title={label}
+      disabled={action.busy}
+      onClick={() =>
+        void action.run(() => runtime.gateway.send('POST', `/api/desktop/folders/${folder}/open`))
+      }
+    >
+      <FolderOpen size={16} aria-hidden="true" />
+      {!inline && label}
+    </Button>
   );
 }

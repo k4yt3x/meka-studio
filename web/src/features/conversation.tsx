@@ -586,7 +586,7 @@ export function Conversation({ state }: { state: SessionState }) {
               {/* A new session's first message shows while its empty history loads; the notice
                   would only push it down for a moment. */}
               {state.loading && !state.saved && !live.length && (
-                <Loading label="Loading saved conversation…" />
+                <Loading label="Loading saved conversation…" fill />
               )}
               {state.saved?.messages.length === 0 &&
                 !live.length &&
@@ -709,7 +709,7 @@ export function Conversation({ state }: { state: SessionState }) {
                 </div>
               )}
               <ErrorNotice error={state.error} />
-              <ErrorNotice error={feedbackError} />
+              <ErrorNotice error={feedbackError} onDismiss={() => setFeedbackError(undefined)} />
               <ErrorNotice error={profiles.error ?? inbox.error} />
             </div>
           </div>

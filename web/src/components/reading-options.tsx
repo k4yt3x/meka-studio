@@ -13,11 +13,12 @@ import {
 } from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import { CaseSensitive } from 'lucide-react';
-import { useRuntime, useSettings } from '../connections/context';
+import { useDesktopApp, useRuntime, useSettings } from '../connections/context';
 import {
   CONVERSATION_FONT,
   CONVERSATION_OFFSET,
   CONVERSATION_WIDTH,
+  conversationAnchorIn,
   normalizeConversationOffset,
 } from '../connections/storage';
 import { Button } from './ui/button';
@@ -71,11 +72,12 @@ export function SessionContent({
 }) {
   const { storage } = useRuntime();
   const settings = useSettings();
+  const desktopApp = useDesktopApp();
   const saved = useMemo<ReadingOptions>(
     () => ({
       fontSize: settings.conversationFontSize,
       maxWidth: settings.conversationMaxWidth,
-      anchor: settings.conversationAnchor,
+      anchor: conversationAnchorIn(settings.conversationAnchor, desktopApp),
       offset: settings.conversationOffset,
     }),
     [
@@ -83,6 +85,7 @@ export function SessionContent({
       settings.conversationMaxWidth,
       settings.conversationAnchor,
       settings.conversationOffset,
+      desktopApp,
     ],
   );
   const [overrides, setOverrides] = useState<Partial<ReadingOptions>>({});
@@ -93,23 +96,25 @@ export function SessionContent({
   // panel takes much of the window: it is centered in its area then too. The offset, set for the
   // page, as for a browser's tab sidebar, is left out then.
   const [offPage, setOffPage] = useState(false);
+  const column = useReadingColumn(pane);
   useLayoutEffect(() => {
     const node = pane.current;
-    if (!node || options.anchor !== 'page') {
+    if (!node || !column || options.anchor !== 'page') {
       setOffPage(false);
       return;
     }
-    const measure = () => setOffPage(leavesPage(node, options.offset));
+    const measure = () => setOffPage(leavesPage(node, column, options.offset));
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(node);
-    for (const column of node.querySelectorAll('.conversation-width')) observer.observe(column);
+    observer.observe(column);
+    if (column.parentElement) observer.observe(column.parentElement);
     window.addEventListener('resize', measure);
     return () => {
       observer.disconnect();
       window.removeEventListener('resize', measure);
     };
-  }, [options.anchor, options.offset, options.maxWidth]);
+  }, [column, options.anchor, options.offset, options.maxWidth]);
   const anchor = beside || offPage ? 'area' : options.anchor;
   const offset = anchor === options.anchor ? options.offset : 0;
   const position = useRef<ReadingPosition | undefined>(undefined);
@@ -196,11 +201,15 @@ export function SessionContent({
 
 const GUIDE_LINGER = 1200;
 
-/** The pane's reading column: the conversation's, or the composer's before one exists. */
+/**
+ * The pane's reading column: the conversation's, or before one exists, the composer's, or the new
+ * conversation's heading, which stands alone while Meka has no model.
+ */
 function readingColumn(pane: HTMLElement | null) {
   return (
     pane?.querySelector<HTMLElement>('.conversation-history > .conversation-width') ??
-    pane?.querySelector<HTMLElement>('.composer-area > .conversation-width')
+    pane?.querySelector<HTMLElement>('.composer-area > .conversation-width') ??
+    pane?.querySelector<HTMLElement>('.new-session-intro')
   );
 }
 
@@ -240,19 +249,38 @@ function CenterGuide({
     return () => observer.disconnect();
   }, [pane, options, visible]);
   return (
-    <div ref={line} className="center-guide" data-visible={visible || undefined} aria-hidden />
+    <div className="center-guide-frame" aria-hidden>
+      <div ref={line} className="center-guide" data-visible={visible || undefined} />
+    </div>
   );
 }
 
 /**
- * Whether the reading column, centered on the page and moved by `offset`, would reach past an edge
- * of the conversation area, which would leave it against that edge with room on the other side.
+ * The pane's reading column, followed as it changes: a session's conversation shows after the pane
+ * does, once its history has loaded, and replaces the composer's column it was placed by till then.
  */
-function leavesPage(pane: HTMLElement, offset: number) {
-  const column = readingColumn(pane);
-  const area = column?.parentElement;
+function useReadingColumn(pane: RefObject<HTMLElement | null>) {
+  const [column, setColumn] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    const node = pane.current;
+    if (!node) return;
+    const find = () => setColumn(readingColumn(node) ?? null);
+    find();
+    const observer = new MutationObserver(find);
+    observer.observe(node, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [pane]);
+  return column;
+}
+
+/**
+ * Whether `column`, centered on the page and moved by `offset`, would reach past an edge of the
+ * conversation area, which would leave it against that edge with room on the other side.
+ */
+function leavesPage(pane: HTMLElement, column: HTMLElement, offset: number) {
+  const area = column.parentElement;
   const page = pane.closest('.app-shell')?.getBoundingClientRect();
-  if (!column || !area || !page) return false;
+  if (!area || !page) return false;
   const style = getComputedStyle(area);
   const paddingLeft = parseFloat(style.paddingLeft) || 0;
   const width = area.clientWidth - paddingLeft - (parseFloat(style.paddingRight) || 0);

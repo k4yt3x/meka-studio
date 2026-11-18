@@ -30,7 +30,7 @@ export function ProjectsPage() {
         </Button>
       </header>
       <ErrorNotice error={projects.error} />
-      {projects.isFetching && !projects.data && <Loading />}
+      {projects.isFetching && !projects.data && <Loading fill />}
       <div className="stack">
         {projects.data?.projects.map((project) => (
           <article className="panel project-card" key={project.name}>

@@ -4,7 +4,7 @@ import { useAction } from '../components/actions';
 import { Button } from '../components/ui/button';
 import { ErrorNotice, Loading } from '../components/common';
 import { MekaStudioLink } from '../components/layout';
-import { OpenLogsButton, RestartMekaButton } from './desktop';
+import { OpenFolderButton, RestartMekaButton } from './desktop';
 
 /**
  * What a signed-in page shows while Meka cannot be reached: why, and ways to try again. The desktop
@@ -14,6 +14,8 @@ export function Unavailable() {
   const runtime = useRuntime();
   const state = useConnection();
   const action = useAction();
+  const restart = useAction();
+  const folders = useAction();
   const desktopApp = useDesktopApp();
   return (
     <main className="welcome unavailable">
@@ -31,8 +33,8 @@ export function Unavailable() {
               </Button>
               {desktopApp ? (
                 <>
-                  <RestartMekaButton />
-                  <OpenLogsButton />
+                  <RestartMekaButton action={restart} />
+                  <OpenFolderButton folder="logs" action={folders} />
                 </>
               ) : (
                 <Button
@@ -45,7 +47,7 @@ export function Unavailable() {
                 </Button>
               )}
             </div>
-            <ErrorNotice error={action.error} />
+            <ErrorNotice error={action.error ?? restart.error ?? folders.error} />
           </>
         )}
       </section>

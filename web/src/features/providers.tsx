@@ -14,7 +14,7 @@ import { segment, type Schema } from '../api/client';
 import { Button } from '../components/ui/button';
 import { Dialog } from '../components/ui/dialog';
 import { SwitchField } from '../components/ui/switch';
-import { ConfirmAction, ErrorNotice, Field, Loading } from '../components/common';
+import { ConfirmAction, Empty, ErrorNotice, Field, Loading } from '../components/common';
 import { useSortable } from '../components/sortable';
 import { useOverlayPadding } from '../components/visual-viewport';
 import { BrowserLogin } from './browser-login';
@@ -168,13 +168,9 @@ export function ProvidersPage() {
       {!canRead && <p className="muted small">Reading accounts requires config:r.</p>}
       <ErrorNotice error={profiles.error} />
       <ErrorNotice error={accounts.error} />
-      {!ready && !profiles.error && <Loading />}
+      {!ready && !profiles.error && <Loading fill />}
       {ready && !groups.length && !orphans.length && !accounts.error && (
-        <p className="muted small">
-          {listed
-            ? 'No accounts yet. An account is what Meka signs in to a provider with.'
-            : 'No profiles yet.'}
-        </p>
+        <Empty title={listed ? 'No accounts yet' : 'No profiles yet'} />
       )}
       {(groups.length > 0 || orphans.length > 0) && (
         <section className="panel provider-list" aria-label="Accounts and profiles">
@@ -622,7 +618,7 @@ function EditProfile({
   if (detail.error) return <ErrorNotice error={detail.error} />;
   // The form takes the settings once, as it opens: a copy kept from before a save is read again
   // first, or it would show what the save changed.
-  if (!detail.data || (detail.isStale && !detail.isFetchedAfterMount)) return <Loading />;
+  if (!detail.data || (detail.isStale && !detail.isFetchedAfterMount)) return <Loading fill />;
   return <ProfileForm initial={detail.data} {...props} />;
 }
 

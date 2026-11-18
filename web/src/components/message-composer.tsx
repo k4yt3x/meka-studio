@@ -26,7 +26,11 @@ import { useAction } from './actions';
 import { useReadingFontSize } from './reading-context';
 import { ComposerResizeHandle } from './composer-resize-handle';
 import { MEKA_IMAGE_BYTES, shrinkFile } from './image-shrink';
-import { imageAccept, imageFiles, pastedFiles } from './image-input';
+import { imageAccept, imageFiles, isAcceptedImage, pastedFiles } from './image-input';
+import { droppedPaths, dropsAsAddresses } from './dropped-paths';
+import { mentionPath, useWorkspace } from './workspace';
+import { useDesktopApp, useRuntime } from '../connections/context';
+import { basename } from '../files/paths';
 import { PermissionSelect } from './ui/permission-select';
 import { ProfileSelect } from './ui/profile-select';
 import { Button } from './ui/button';
@@ -164,25 +168,66 @@ export function MessageComposer({
     return () => observer.disconnect();
   }, [onResize]);
   const canAttach = !attachments.disabled && !fileAction.busy;
+  const desktopApp = useDesktopApp();
+  const workspace = useWorkspace();
+  const runtime = useRuntime();
+  async function attachAll(files: File[]) {
+    const added = await Promise.all(imageFiles(files).map(fileImage));
+    attachments.onChange((images) => [...images, ...added]);
+  }
   function attach(files: File[]) {
     // A drag can offer files and deliver none, and starting a run would clear the error shown.
     if (!files.length) return;
+    void fileAction.run(() => attachAll(files));
+  }
+  /**
+   * What a drop on the desktop app brought, by where it is: an image is attached, read from its
+   * folder, and anything else, or an image where none can be attached, is mentioned by its path.
+   * The files themselves are attached where the app could not say where they are.
+   */
+  function place(found: Promise<string[]>, files: File[]) {
     void fileAction.run(async () => {
-      const added = await Promise.all(imageFiles(files).map(fileImage));
-      attachments.onChange((images) => [...images, ...added]);
+      const paths = await found;
+      if (!paths.length) {
+        if (!attachments.disabled) await attachAll(files);
+        return;
+      }
+      const images = attachments.disabled
+        ? []
+        : paths.filter((path) => isAcceptedImage({ name: basename(path), type: '' }));
+      for (const path of paths) if (!images.includes(path)) workspace?.mention(mentionPath(path));
+      const read = await Promise.all(
+        images.map(async (path) => {
+          const response = await runtime.gateway.response('GET', '/api/files/raw', {
+            query: { path },
+          });
+          return new File([await response.blob()], basename(path));
+        }),
+      );
+      await attachAll(read);
     });
   }
   const [dropping, setDropping] = useState(false);
   const dragFiles = useEffectEvent((event: DragEvent) => {
-    if (!event.dataTransfer?.types.includes('Files')) return;
-    event.preventDefault();
-    if (event.type === 'drop') {
-      setDropping(false);
-      if (canAttach) attach(Array.from(event.dataTransfer.files));
-    } else {
-      event.dataTransfer.dropEffect = canAttach ? 'copy' : 'none';
-      setDropping(canAttach);
+    const transfer = event.dataTransfer;
+    const files = transfer?.types.includes('Files') ?? false;
+    if (!transfer || !(files || (desktopApp && dropsAsAddresses(transfer)))) return;
+    // The desktop app can mention what it cannot attach.
+    const takes = desktopApp ? !fileAction.busy : canAttach;
+    if (event.type !== 'drop') {
+      event.preventDefault();
+      transfer.dropEffect = takes ? 'copy' : 'none';
+      setDropping(takes);
+      return;
     }
+    setDropping(false);
+    const found = desktopApp ? droppedPaths(transfer) : undefined;
+    // A link dragged in is text, which the input takes as it does.
+    if (!found && !files) return;
+    event.preventDefault();
+    if (!takes) return;
+    if (found) place(found, Array.from(transfer.files));
+    else attach(Array.from(transfer.files));
   });
   useEffect(() => {
     // Files dropped anywhere on the conversation attach, not only on the composer.

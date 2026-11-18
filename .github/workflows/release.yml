@@ -118,15 +118,12 @@ jobs:
           - name: x86_64-windows
             runner: windows-latest
             target: x86_64-pc-windows-msvc
-            bundles: nsis
             python: python
-            exe: .exe
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     env:
       CARGO_TERM_COLOR: always
       TARGET: ${{ matrix.target }}
-      EXE: ${{ matrix.exe }}
     defaults:
       run:
         shell: bash
@@ -136,6 +133,14 @@ jobs:
         with:
           name: interface
           path: web/dist
+      # The interface's packages, whose licenses go in the third-party notices.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: web/.nvmrc
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --ignore-scripts
+        working-directory: web
       # The webview and tray icon, and patchelf for the AppImage.
       - if: runner.os == 'Linux'
         run: >
@@ -145,25 +150,59 @@ jobs:
       - if: runner.os == 'Windows'
         run: echo 'OPENSSL_SRC_PERL=C:\Strawberry\perl\bin\perl.exe' >> "$GITHUB_ENV"
       - run: rustup toolchain install stable --profile minimal --target "$TARGET"
-      - run: cargo install tauri-cli --version 2.12.5 --locked
       - run: ${{ matrix.python }} crates/meka-studio-desktop/fetch-meka.py "$TARGET"
+      - run: >
+          ${{ matrix.python }} crates/meka-studio-desktop/notices.py "$TARGET"
+          crates/meka-studio-desktop/binaries/THIRD-PARTY-NOTICES.txt
+      - if: runner.os != 'Windows'
+        run: cargo install tauri-cli --version 2.12.5 --locked
       - name: Bundle the app with its Meka
+        if: runner.os != 'Windows'
         working-directory: crates/meka-studio-desktop
         run: >
           cargo tauri build --target "$TARGET" --bundles ${{ matrix.bundles }}
-          --config "{\"bundle\":{\"resources\":{\"binaries/meka$EXE\":\"meka$EXE\"}}}"
+          --config '{"bundle":{"resources":{"binaries/meka":"meka","../../LICENSE":"LICENSE",
+          "binaries/THIRD-PARTY-NOTICES.txt":"THIRD-PARTY-NOTICES.txt"}}}'
       - name: Name the bundles
+        if: runner.os != 'Windows'
         run: |
           bundle="target/$TARGET/release/bundle"
-          for file in "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage "$bundle"/dmg/*.dmg \
-            "$bundle"/nsis/*-setup.exe; do
+          for file in "$bundle"/deb/*.deb "$bundle"/appimage/*.AppImage "$bundle"/dmg/*.dmg; do
             [ -e "$file" ] || continue
-            case "$file" in
-              *-setup.exe) suffix=-setup.exe ;;
-              *) suffix=".${file##*.}" ;;
-            esac
-            cp "$file" "meka-studio-desktop-${{ matrix.name }}$suffix"
+            cp "$file" "meka-studio-desktop-${{ matrix.name }}.${file##*.}"
           done
+          ls meka-studio-desktop-*
+      # Windows gets an Inno Setup installer and a portable zip, which Tauri's bundler does not
+      # make. The feature is the one `cargo tauri build` adds, which serves the start page from
+      # the program rather than from a development server.
+      - name: Build the app
+        if: runner.os == 'Windows'
+        run: >
+          cargo build --release --locked --target "$TARGET" -p meka-studio-desktop
+          --features tauri/custom-protocol
+      - name: Gather the app's files
+        if: runner.os == 'Windows'
+        run: |
+          mkdir meka-studio-desktop
+          cp "target/$TARGET/release/meka-studio-desktop.exe" LICENSE \
+            crates/meka-studio-desktop/binaries/meka.exe \
+            crates/meka-studio-desktop/binaries/THIRD-PARTY-NOTICES.txt meka-studio-desktop/
+      - if: runner.os == 'Windows'
+        run: choco install innosetup --version 6.7.1 --allow-downgrade --yes --no-progress
+      # In PowerShell, as Git's Bash turns ISCC's /-options into paths.
+      - name: Make the installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: >
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q
+          "/DAppVersion=$env:GITHUB_REF_NAME" "/DBundle=$PWD\meka-studio-desktop" "/O$PWD"
+          crates\meka-studio-desktop\windows\meka-studio-desktop.iss
+      # The marker makes the copy portable, keeping its data in a data folder beside it.
+      - name: Make the portable zip
+        if: runner.os == 'Windows'
+        run: |
+          : > meka-studio-desktop/.portable
+          7z a -tzip "meka-studio-desktop-${{ matrix.name }}-portable.zip" meka-studio-desktop
           ls meka-studio-desktop-*
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

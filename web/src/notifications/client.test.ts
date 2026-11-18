@@ -332,6 +332,8 @@ it('tells Meka Studio it is in front only while focused and alerting in the page
   expect(focus).toHaveBeenLastCalledWith(true);
   // With neither toasts nor sound, push is how it hears.
   f.storage.inAppNotifications(false);
+  expect(focus).toHaveBeenLastCalledWith(true);
+  f.storage.completionSound(false);
   expect(focus).toHaveBeenLastCalledWith(false);
 });
 

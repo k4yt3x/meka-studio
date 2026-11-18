@@ -18,12 +18,13 @@ import {
   EDITOR_FONT,
   FILES_FONT,
   TERMINAL_FONT,
+  conversationAnchorIn,
 } from '../connections/storage';
 import type { Schema } from '../api/client';
 import type { Gateway } from '../api/gateway';
 import { Button } from '../components/ui/button';
 import { SwitchField } from '../components/ui/switch';
-import { ErrorNotice, Field, Json, Loading, Timestamp } from '../components/common';
+import { Empty, ErrorNotice, Field, Json, Loading, Timestamp } from '../components/common';
 import { Markdown } from '../components/markdown';
 import { PixelInput } from '../components/pixel-input';
 import { appleKeyboard } from '../components/shortcut-keys';
@@ -33,7 +34,8 @@ import { AccountSettings } from './account';
 import {
   DesktopAppSettings,
   MekaProcessFacts,
-  OpenLogsButton,
+  OpenFolderButton,
+  PortableFact,
   RestartMekaButton,
   UpdateNotice,
 } from './desktop';
@@ -129,6 +131,8 @@ export function AppearanceSettings() {
   const settings = useSettings();
   const runtime = useRuntime();
   const status = useGateway<Gateway['StatusView']>('/api/status');
+  const desktopApp = useDesktopApp();
+  const anchor = conversationAnchorIn(settings.conversationAnchor, desktopApp);
   return (
     <SectionPage
       title="Appearance"
@@ -138,7 +142,7 @@ export function AppearanceSettings() {
           disabled={
             settings.conversationFontSize === CONVERSATION_FONT.default &&
             settings.conversationMaxWidth === CONVERSATION_WIDTH.default &&
-            settings.conversationAnchor === 'page' &&
+            anchor === conversationAnchorIn(undefined, desktopApp) &&
             settings.conversationOffset === CONVERSATION_OFFSET.default &&
             settings.terminalFontSize === TERMINAL_FONT.default &&
             settings.editorFontSize === EDITOR_FONT.default &&
@@ -157,9 +161,9 @@ export function AppearanceSettings() {
         </Button>
       }
     >
-      <section className="panel appearance-panel">
+      <section className="panel">
         <h2>Theme</h2>
-        <div className="appearance-fields">
+        <div className="field-grid">
           <Field label="Color theme">
             <select
               value={settings.theme}
@@ -174,9 +178,9 @@ export function AppearanceSettings() {
           </Field>
         </div>
       </section>
-      <section className="panel appearance-panel">
+      <section className="panel">
         <h2>Conversation</h2>
-        <div className="appearance-fields">
+        <div className="field-grid">
           <Field label="Conversation font size">
             <PixelInput
               label="Conversation font size"
@@ -198,7 +202,7 @@ export function AppearanceSettings() {
           </Field>
           <Field label="Center conversation on">
             <select
-              value={settings.conversationAnchor}
+              value={anchor}
               onChange={(event) =>
                 runtime.storage.conversationAnchor(event.target.value === 'area' ? 'area' : 'page')
               }
@@ -221,11 +225,11 @@ export function AppearanceSettings() {
           </Field>
         </div>
       </section>
-      <section className="panel appearance-panel">
+      <section className="panel">
         <h2>
           {status.data?.features.terminal ? 'Files, editor and terminal' : 'Files and editor'}
         </h2>
-        <div className="appearance-fields">
+        <div className="field-grid">
           <Field label="Files font size">
             <PixelInput
               label="Files font size"
@@ -297,6 +301,8 @@ export function AboutSettings() {
   const desktopApp = useDesktopApp();
   const edited = config.data?.config_changed;
   const reload = useAction();
+  const restart = useAction();
+  const folders = useAction();
   const [reloaded, setReloaded] = useState<string>();
   return (
     <SectionPage title="About">
@@ -316,7 +322,7 @@ export function AboutSettings() {
               </>
             )}
           </dd>
-          {desktopApp && <MekaProcessFacts />}
+          {desktopApp && <MekaProcessFacts folders={folders} />}
           <dt>Meka version</dt>
           <dd>
             {meka?.version ?? state.info?.version}
@@ -339,6 +345,7 @@ export function AboutSettings() {
             {status.data?.version ?? __MEKA_STUDIO_VERSION__}
             {desktopApp && <UpdateNotice />}
           </dd>
+          {desktopApp && <PortableFact />}
           <dt>Liveness</dt>
           <dd>{live.isPending ? 'Checking…' : (live.data?.status ?? 'Unavailable')}</dd>
           <dt>Readiness</dt>
@@ -362,13 +369,19 @@ export function AboutSettings() {
           {config.data?.config_path && (
             <>
               <dt>Config file</dt>
-              <dd>{config.data.config_path}</dd>
+              <dd>
+                {config.data.config_path}
+                {desktopApp && <OpenFolderButton folder="config" action={folders} inline />}
+              </dd>
             </>
           )}
           {config.data?.data_dir && (
             <>
               <dt>Data folder</dt>
-              <dd>{config.data.data_dir}</dd>
+              <dd>
+                {config.data.data_dir}
+                {desktopApp && <OpenFolderButton folder="data" action={folders} inline />}
+              </dd>
             </>
           )}
           {config.data && (
@@ -404,7 +417,9 @@ export function AboutSettings() {
             ready.error ??
             config.error ??
             action.error ??
-            reload.error
+            reload.error ??
+            restart.error ??
+            folders.error
           }
         />
         {reloaded && (
@@ -438,8 +453,7 @@ export function AboutSettings() {
             <RefreshCw size={16} className={action.busy ? 'spin' : undefined} />
             Check now
           </Button>
-          {desktopApp && <RestartMekaButton />}
-          {desktopApp && <OpenLogsButton />}
+          {desktopApp && <RestartMekaButton action={restart} />}
           {canConfigure && (
             <Button
               variant={edited ? 'default' : 'secondary'}
@@ -477,14 +491,6 @@ export function AboutSettings() {
   );
 }
 
-export function InstructionsSettings() {
-  return (
-    <SectionPage title="Standing instructions">
-      <InstructionsPanel />
-    </SectionPage>
-  );
-}
-
 /** What a reload changed: the MCP servers it started, restarted, updated, and took out, and the
  * sections only a restart applies. */
 function reloadOutcome(result: Schema['ReloadResponse']) {
@@ -501,7 +507,8 @@ function reloadOutcome(result: Schema['ReloadResponse']) {
   return ['Config reloaded.', ...parts].join(' ');
 }
 
-function InstructionsPanel() {
+/** Meka's standing instructions, which new sessions run under, and editing them where Meka can. */
+export function InstructionsSettings() {
   const { api } = useConnection();
   const canWrite = useCan('config:w');
   const instructions = useResource<Schema['InstructionsResponse']>('/v1/instructions');
@@ -520,55 +527,59 @@ function InstructionsPanel() {
   }
   const data = instructions.data;
   return (
-    <section className="panel">
-      <ErrorNotice error={instructions.error ?? action.error} />
-      {draft !== undefined ? (
-        <form className="form-stack" onSubmit={(event) => void save(event)}>
-          <Field label="Instructions" hint="New sessions run under them. Empty removes them.">
-            <textarea
-              className="body-editor"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-            />
-          </Field>
-          <div className="actions">
-            <Button type="submit" disabled={action.busy}>
-              {action.busy ? 'Saving…' : 'Save'}
-            </Button>
-            <Button variant="ghost" disabled={action.busy} onClick={() => setDraft(undefined)}>
-              Cancel
-            </Button>
-          </div>
-        </form>
-      ) : instructions.isPending ? (
-        <Loading />
-      ) : (
-        <>
-          {data?.content ? (
-            <>
-              {data.source && <p className="muted small">{data.source}</p>}
-              <div className="instructions-body">
-                <Markdown text={data.content} />
-              </div>
-            </>
-          ) : (
-            !instructions.error && (
-              <p className="muted small">No standing instructions configured.</p>
-            )
-          )}
-          {canWrite && data && !data.writable && data.source && (
-            <p className="muted small">Read only while Meka takes them from {data.source}.</p>
-          )}
-          {canWrite && data?.writable && (
+    <SectionPage
+      title="Instructions"
+      actions={
+        canWrite &&
+        data?.writable &&
+        draft === undefined && (
+          <Button variant="secondary" onClick={() => setDraft(data.content ?? '')}>
+            <Pencil size={15} />
+            Edit
+          </Button>
+        )
+      }
+    >
+      <section className="panel">
+        <ErrorNotice error={instructions.error ?? action.error} />
+        {draft !== undefined ? (
+          <form className="form-stack" onSubmit={(event) => void save(event)}>
+            <Field label="Instructions" hint="New sessions run under them. Empty removes them.">
+              <textarea
+                className="body-editor"
+                value={draft}
+                onChange={(event) => setDraft(event.target.value)}
+              />
+            </Field>
             <div className="actions">
-              <Button variant="secondary" onClick={() => setDraft(data.content ?? '')}>
-                <Pencil size={15} />
-                Edit
+              <Button type="submit" disabled={action.busy}>
+                {action.busy ? 'Saving…' : 'Save'}
+              </Button>
+              <Button variant="ghost" disabled={action.busy} onClick={() => setDraft(undefined)}>
+                Cancel
               </Button>
             </div>
-          )}
-        </>
-      )}
-    </section>
+          </form>
+        ) : instructions.isPending ? (
+          <Loading fill />
+        ) : (
+          <>
+            {data?.content ? (
+              <>
+                {data.source && <p className="muted small">{data.source}</p>}
+                <div className="instructions-body">
+                  <Markdown text={data.content} />
+                </div>
+              </>
+            ) : (
+              !instructions.error && <Empty title="No standing instructions yet" />
+            )}
+            {canWrite && data && !data.writable && data.source && (
+              <p className="muted small">Read only while Meka takes them from {data.source}.</p>
+            )}
+          </>
+        )}
+      </section>
+    </SectionPage>
   );
 }

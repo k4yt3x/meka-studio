@@ -1,6 +1,7 @@
 //! Where the app keeps what it keeps, and the small files it keeps there: its settings, and what
 //! it remembers from one start to the next. Meka's config and store are the app's own, apart from
-//! any other Meka on the computer.
+//! any other Meka on the computer. An installed app keeps them in folders of its own in the user's
+//! config and data folders; a portable copy, on Windows, in a `data` folder beside it.
 
 use std::{
     io::Write,
@@ -15,6 +16,21 @@ use tauri::{AppHandle, Manager};
 /// The largest a log grows to before it is set aside, at the next start, for a new one.
 const MAX_LOG_BYTES: u64 = 10 * 1024 * 1024;
 
+/// The file beside the program that makes it a portable copy. What it holds is not read.
+const PORTABLE_MARKER: &str = ".portable";
+
+/// The name of an installed app's folders in the user's config and data folders: as Windows lists
+/// the app, and as XDG names folders on Linux. It is not the `productName`, so that renaming the
+/// app leaves its data where it is. macOS names the folders after the app's identifier, as Apple
+/// asks.
+#[cfg(windows)]
+const FOLDER: &str = "Meka Studio Desktop";
+#[cfg(all(unix, not(target_os = "macos")))]
+const FOLDER: &str = "meka-studio-desktop";
+
+/// The name of the webview's data folder, in the folder the app keeps its local data in.
+const WEBVIEW: &str = "webview";
+
 /// The app's folders and files.
 #[derive(Debug, Clone)]
 pub(crate) struct Paths {
@@ -22,7 +38,8 @@ pub(crate) struct Paths {
     pub(crate) meka_config: PathBuf,
     /// Meka's data folder, its `MEKA_DATA_DIR`.
     pub(crate) meka_data: PathBuf,
-    /// The file holding the token Meka takes from the app.
+    /// The file holding the token Meka takes from the app, in Meka's config folder, which Meka
+    /// hides from what the agent runs.
     pub(crate) meka_token: PathBuf,
     /// The Meka binary the app was built with.
     pub(crate) meka: PathBuf,
@@ -32,38 +49,115 @@ pub(crate) struct Paths {
     pub(crate) settings: PathBuf,
     /// What the app remembers from one start to the next.
     pub(crate) memory: PathBuf,
-    /// The file the running Meka's process id is kept in.
-    pub(crate) meka_pid: PathBuf,
     /// The logs' folder.
     pub(crate) logs: PathBuf,
+    /// The webview's data folder; `None` on macOS, whose webview keeps its data in the user's
+    /// Library whatever the app asks.
+    pub(crate) webview: Option<PathBuf>,
+    /// The folder a portable copy keeps everything in; `None` when the app is installed.
+    pub(crate) portable: Option<PathBuf>,
 }
 
 impl Paths {
-    /// The folders the system gives the app.
+    /// The folder beside the program for a portable copy, or else the app's folders in the user's
+    /// config and data folders.
     pub(crate) fn of(app: &AppHandle) -> anyhow::Result<Self> {
         let path = app.path();
-        let config = path.app_config_dir()?;
-        let data = path.app_data_dir()?;
-        Ok(Self {
-            meka_config: config.join("meka-config"),
+        let meka =
+            plain(path.resource_dir()?).join(format!("meka{}", std::env::consts::EXE_SUFFIX));
+        if let Some(root) = portable_root(&plain(std::env::current_exe()?)) {
+            return Ok(Self::portable(root, meka));
+        }
+        #[cfg(target_os = "macos")]
+        let paths = Self::new(
+            &path.app_config_dir()?,
+            &path.app_data_dir()?,
+            path.app_log_dir()?,
+            None,
+            meka,
+            None,
+        );
+        #[cfg(not(target_os = "macos"))]
+        let paths = {
+            let local = local_folder(app)?;
+            Self::new(
+                &path.config_dir()?.join(FOLDER),
+                &path.data_dir()?.join(FOLDER),
+                local.join("logs"),
+                Some(local.join(WEBVIEW)),
+                meka,
+                None,
+            )
+        };
+        Ok(paths)
+    }
+
+    /// A portable copy's folders and files, all in `root`.
+    fn portable(root: PathBuf, meka: PathBuf) -> Self {
+        Self::new(
+            &root,
+            &root,
+            root.join("logs"),
+            Some(root.join(WEBVIEW)),
+            meka,
+            Some(root.clone()),
+        )
+    }
+
+    fn new(
+        config: &Path,
+        data: &Path,
+        logs: PathBuf,
+        webview: Option<PathBuf>,
+        meka: PathBuf,
+        portable: Option<PathBuf>,
+    ) -> Self {
+        let meka_config = config.join("meka-config");
+        Self {
+            meka_token: meka_config.join("meka-token"),
+            meka_config,
             meka_data: data.join("meka-data"),
-            meka_token: data.join("meka-token"),
-            meka: plain(path.resource_dir()?).join(format!("meka{}", std::env::consts::EXE_SUFFIX)),
+            meka,
             studio: data.join("studio"),
             settings: config.join("settings.json"),
             memory: data.join("memory.json"),
-            meka_pid: data.join("meka.pid"),
-            logs: path.app_log_dir()?,
-        })
+            logs,
+            webview,
+            portable,
+        }
     }
 
     /// Makes the folders that are not there yet, readable by their owner alone.
     pub(crate) fn make(&self) -> anyhow::Result<()> {
-        for folder in [&self.meka_config, &self.meka_data, &self.studio, &self.logs] {
+        for folder in [&self.meka_config, &self.meka_data, &self.studio, &self.logs]
+            .into_iter()
+            .chain(self.webview.as_ref())
+        {
             make_folder(folder)?;
         }
         Ok(())
     }
+}
+
+/// The folder an installed app keeps its local data in: its logs, and the webview's data.
+#[cfg(not(target_os = "macos"))]
+fn local_folder(app: &AppHandle) -> tauri::Result<PathBuf> {
+    Ok(app.path().local_data_dir()?.join(FOLDER))
+}
+
+/// An installed app's webview data folder, for a window opened before the app has its folders.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) fn installed_webview(app: &AppHandle) -> tauri::Result<PathBuf> {
+    Ok(local_folder(app)?.join(WEBVIEW))
+}
+
+/// The folder a portable copy keeps everything in: `data` beside the program at `exe`, when the
+/// [`PORTABLE_MARKER`] file is beside it too, on Windows. Linux keeps an app's folders where the
+/// XDG variables say, and macOS keeps a webview's data in the user's Library whatever the app
+/// asks, so neither has portable copies.
+fn portable_root(exe: &Path) -> Option<PathBuf> {
+    let folder = exe.parent()?;
+    (cfg!(windows) && folder.join(PORTABLE_MARKER).is_file()).then(|| folder.join("data"))
 }
 
 /// `path` without the `\\?\` that Windows puts before a drive in a path read off the running
@@ -97,6 +191,19 @@ pub(crate) struct Memory {
     pub(crate) port: Option<u16>,
     /// The newest release the app told of, so it is told of once.
     pub(crate) told_update: Option<String>,
+    /// Where the main window was, to open it there again.
+    pub(crate) window: Option<WindowPlace>,
+}
+
+/// The main window's place on the screen, in physical pixels: its outer edges when it was last
+/// neither maximized nor minimized, and whether it was maximized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub(crate) struct WindowPlace {
+    pub(crate) x: i32,
+    pub(crate) y: i32,
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) maximized: bool,
 }
 
 /// The app's settings in `path`; their defaults if there are none yet, or if they cannot be read,
@@ -189,12 +296,46 @@ mod tests {
         assert_eq!(read_settings(&path), DesktopSettings::default());
     }
 
+    #[test]
+    fn a_marker_beside_the_program_makes_a_portable_copy_on_windows_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("meka-studio-desktop.exe");
+        assert_eq!(portable_root(&exe), None);
+        std::fs::create_dir(dir.path().join(PORTABLE_MARKER)).unwrap();
+        assert_eq!(portable_root(&exe), None, "a folder is not the marker");
+        std::fs::remove_dir(dir.path().join(PORTABLE_MARKER)).unwrap();
+        std::fs::write(dir.path().join(PORTABLE_MARKER), "").unwrap();
+        assert_eq!(
+            portable_root(&exe),
+            cfg!(windows).then(|| dir.path().join("data"))
+        );
+    }
+
+    #[test]
+    fn a_portable_copy_keeps_everything_in_its_folder() {
+        let root = PathBuf::from("copy").join("data");
+        let paths = Paths::portable(root.clone(), PathBuf::from("meka"));
+        let webview = paths.webview.clone().unwrap();
+        for path in [
+            &paths.meka_config,
+            &paths.meka_data,
+            &paths.meka_token,
+            &paths.studio,
+            &paths.settings,
+            &paths.memory,
+            &paths.logs,
+            &webview,
+        ] {
+            assert!(path.starts_with(&root), "{} is outside", path.display());
+        }
+    }
+
     #[cfg(windows)]
     #[test]
     fn a_drive_path_loses_its_verbatim_prefix() {
         assert_eq!(
-            plain(PathBuf::from(r"\\?\C:\Program Files\Meka Studio")),
-            PathBuf::from(r"C:\Program Files\Meka Studio")
+            plain(PathBuf::from(r"\\?\C:\Program Files\Meka Studio Desktop")),
+            PathBuf::from(r"C:\Program Files\Meka Studio Desktop")
         );
         let share = PathBuf::from(r"\\?\UNC\server\share");
         assert_eq!(plain(share.clone()), share);
@@ -207,6 +348,13 @@ mod tests {
         let memory = Memory {
             port: Some(23456),
             told_update: Some("1.2.3".to_owned()),
+            window: Some(WindowPlace {
+                x: -1200,
+                y: 40,
+                width: 1280,
+                height: 840,
+                maximized: true,
+            }),
         };
         write_json(&path, &memory).unwrap();
         assert_eq!(read_memory(&path), memory);

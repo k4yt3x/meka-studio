@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type CSSProperties,
   type DragEvent,
   type FormEvent,
 } from 'react';
@@ -12,14 +13,14 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
 import {
   AtSign,
+  ChevronRight,
   ChevronsDownUp,
+  CircleAlert,
   Copy,
   Download,
   Eye,
   EyeOff,
-  File as FileIcon,
   FilePlus,
-  Folder,
   FolderInput,
   FolderPlus,
   FolderRoot,
@@ -86,6 +87,9 @@ import {
 import { useSessionNavigation } from './session-navigation';
 import { mentionPath, useWorkspace } from '../components/workspace';
 import { DRAGGED_PATHS, FileTree, type Choosing } from './file-tree';
+import { treeMeasures } from './file-tree-measures';
+import { useDarkTheme } from '../components/theme';
+import { fileIconName, folderIconName, iconUrl } from '../files/icons';
 
 type Entry = Gateway['Entry'];
 type Listing = Gateway['Listing'];
@@ -227,11 +231,11 @@ export function FileBrowser({
   // What such a request asks to be shown is chosen, and scrolled to once it shows.
   const asked = fresh && (fresh.open ? join(fresh.path, fresh.open) : fresh.path);
   const [chosen, setChosen] = useState<Chosen>(() =>
-    asked ? { paths: new Set([asked]), held: false } : nothing,
+    asked ? { paths: new Set([asked]), anchor: asked, held: false } : nothing,
   );
   const [focused, setFocused] = useState(asked);
-  const [revealing, setRevealing] = useState<{ path: string; nonce: number } | undefined>(() =>
-    fresh && asked ? { path: asked, nonce: fresh.nonce } : undefined,
+  const [revealing, setRevealing] = useState<{ path: string } | undefined>(() =>
+    asked ? { path: asked } : undefined,
   );
   const [renaming, setRenaming] = useState<string>();
   const [creating, setCreating] = useState<{ parent: string; folder: boolean }>();
@@ -266,6 +270,30 @@ export function FileBrowser({
   const folder = listing.data?.path ?? root;
   // Only a folder that listed is kept, so a mistyped path is not where Files opens next.
   const listed = listing.data?.path;
+  /** Opens the folders from the one shown down to `dir`, which is inside it. */
+  function openDownTo(dir: string) {
+    if (dir === folder) return;
+    updateOpen((current) => {
+      const next = new Set(current);
+      for (let at = dir; at !== folder && within(at, folder); at = parent(at)) next.add(at);
+      return next;
+    });
+  }
+  /** Chooses `paths`, the first focused and scrolled to once it shows. */
+  function reveal(paths: readonly string[]) {
+    const first = paths[0];
+    if (first === undefined) return;
+    setChosen({ paths: new Set(paths), anchor: first, held: false });
+    setFocused(first);
+    setRevealing({ path: first });
+  }
+  // What an upload put in a folder shown is chosen, the folders down to it opened.
+  const uploaded = useEffectEvent((dir: string, entries: string[]) => {
+    if (!listed || !within(dir, folder)) return;
+    openDownTo(dir);
+    reveal(entries);
+  });
+  useEffect(() => store.onFinished(uploaded), [store]);
   useEffect(() => {
     if (!listed) return;
     lastFolders.set(place, listed);
@@ -396,15 +424,10 @@ export function FileBrowser({
   if (target && target.nonce !== seen) {
     setSeen(target.nonce);
     const file = target.open ? join(target.path, target.open) : undefined;
-    if (within(target.path, folder) && listed) {
-      // Inside the folder shown, the folders down to it open.
-      const next = new Set(open);
-      for (let at = target.path; at !== folder && within(at, folder); at = parent(at)) next.add(at);
-      updateOpen(() => next);
-    } else setRoot(target.path);
-    setRevealing({ path: file ?? target.path, nonce: target.nonce });
-    setChosen({ paths: new Set([file ?? target.path]), held: false });
-    setFocused(file ?? target.path);
+    // Inside the folder shown, the folders down to it open.
+    if (within(target.path, folder) && listed) openDownTo(target.path);
+    else setRoot(target.path);
+    reveal([file ?? target.path]);
   }
   useEffect(() => {
     if (!target || followedTargets.get(place) === target.nonce) return;
@@ -662,9 +685,13 @@ export function FileBrowser({
       />
       {actions.error}
       <ErrorNotice error={action.error} />
-      <UploadList batches={batches} store={store} />
+      <UploadList
+        batches={batches}
+        store={store}
+        measures={treeMeasures(zoom ?? filesFontSize, coarse).style}
+      />
       <ErrorNotice error={listing.error} />
-      {listing.isPending && <Loading />}
+      {listing.isPending && <Loading fill />}
       {listed && (
         <FileTree
           rows={rows}
@@ -1402,62 +1429,320 @@ function FolderMenu({
   );
 }
 
-function UploadList({ batches, store }: { batches: UploadBatch[]; store: Uploads }) {
+/**
+ * Uploads under way, and those that need a word, as rows like the tree's: one for a file or a
+ * folder, and for a batch of several, one that opens on them. A batch that landed is gone from
+ * here, what it put in its folder chosen in the tree.
+ */
+function UploadList({
+  batches,
+  store,
+  measures,
+}: {
+  batches: UploadBatch[];
+  store: Uploads;
+  measures: CSSProperties;
+}) {
+  const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
   if (!batches.length) return null;
   return (
-    <section className="upload-list" aria-label="Uploads">
-      {batches.map((batch) => {
-        const there = batch.items.filter((item) => item.state === 'exists');
-        const rows = uploadRows(batch.items);
-        return (
-          <div className="upload-batch" key={batch.key}>
-            {batch.note && <p className="small notice-inline">{batch.note}</p>}
-            {(there.length > 1 || there.some((item) => item.folder)) && (
-              <div className="upload-existing">
-                <span>
-                  {there.length.toLocaleString()} already {there.length === 1 ? 'exists' : 'exist'}
-                </span>
-                <Button size="sm" onClick={() => store.decide(batch.key, 'replace')}>
-                  Replace
-                </Button>
-                <Button size="sm" variant="ghost" onClick={() => store.decide(batch.key, 'skip')}>
-                  Skip
-                </Button>
-              </div>
-            )}
-            {rows.length > 0 && (
-              <div
-                className="upload-items"
-                tabIndex={0}
-                role="group"
-                aria-label="Files in this upload"
-                onKeyDown={scrollRegion}
-              >
-                {rows.map((row) =>
-                  row.folder ? (
-                    <FolderUpload
-                      key={row.folder}
-                      path={join(batch.dir, row.folder)}
-                      items={row.items}
-                      store={store}
-                    />
-                  ) : (
-                    <FileUpload key={row.items[0]!.key} item={row.items[0]!} store={store} />
-                  ),
-                )}
-              </div>
-            )}
-            {!batch.items.some(pending) && (
-              <div className="actions">
-                <Button size="sm" variant="ghost" onClick={() => store.dismiss(batch.key)}>
-                  Dismiss
-                </Button>
-              </div>
-            )}
-          </div>
-        );
-      })}
+    <section className="upload-list" aria-label="Uploads" style={measures}>
+      {batches.map((batch) => (
+        <UploadBatchRows
+          key={batch.key}
+          batch={batch}
+          store={store}
+          open={opened.has(batch.key)}
+          onToggle={() =>
+            setOpened((current) => {
+              const next = new Set(current);
+              if (!next.delete(batch.key)) next.add(batch.key);
+              return next;
+            })
+          }
+        />
+      ))}
     </section>
+  );
+}
+
+function UploadBatchRows({
+  batch,
+  store,
+  open,
+  onToggle,
+}: {
+  batch: UploadBatch;
+  store: Uploads;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const rows = uploadRows(batch.items);
+  const waiting = batch.items.filter(pending);
+  const there = batch.items.filter((item) => item.state === 'exists');
+  const failed = batch.items.filter((item) => item.state === 'failed');
+  const several = rows.length > 1;
+  const conflict =
+    there.length === 1 && !there[0]!.folder
+      ? `${there[0]!.name} already exists`
+      : `${there.length.toLocaleString()} already exist`;
+  // What went wrong is put away once nothing else is left to do.
+  const dismiss = !waiting.length && !there.length ? () => store.dismiss(batch.key) : undefined;
+  const problems = [
+    ...(batch.note ? [{ key: 'note', text: batch.note }] : []),
+    ...failed.slice(0, 3).map((item) => ({
+      key: item.key,
+      name: item.folder?.path ?? item.name,
+      text: item.error ?? 'Not uploaded.',
+    })),
+    ...(failed.length > 3
+      ? [
+          {
+            key: 'more',
+            text: `${(failed.length - 3).toLocaleString()} more could not be uploaded.`,
+          },
+        ]
+      : []),
+  ];
+  return (
+    <div className="upload-batch" role="group" aria-label={`Upload into ${basename(batch.dir)}`}>
+      {waiting.length > 0 &&
+        (several ? (
+          <UploadSummary
+            items={batch.items}
+            waiting={waiting}
+            store={store}
+            open={open}
+            onToggle={onToggle}
+          />
+        ) : (
+          <UploadRow row={rows[0]!} dir={batch.dir} depth={0} store={store} />
+        ))}
+      {several && open && waiting.length > 0 && (
+        <div
+          className="upload-items bounded"
+          tabIndex={0}
+          role="group"
+          aria-label="Files in this upload"
+          onKeyDown={scrollRegion}
+        >
+          {rows.map((row) => (
+            <UploadRow
+              key={row.folder ?? row.items[0]!.key}
+              row={row}
+              dir={batch.dir}
+              depth={1}
+              store={store}
+            />
+          ))}
+        </div>
+      )}
+      {there.length > 0 && (
+        <div className="upload-row" data-state="exists" title={conflict}>
+          <span className="file-tree-twisty" aria-hidden="true" />
+          <TriangleAlert className="upload-alert" aria-hidden="true" />
+          <span className="file-tree-name">{conflict}</span>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="upload-choice"
+            onClick={() => store.decide(batch.key, 'replace')}
+          >
+            Replace
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="upload-choice"
+            onClick={() => store.decide(batch.key, 'skip')}
+          >
+            Skip
+          </Button>
+        </div>
+      )}
+      {problems.map((problem, index) => (
+        <div
+          className="upload-row"
+          data-state="failed"
+          key={problem.key}
+          title={'name' in problem ? `${problem.name}: ${problem.text}` : problem.text}
+        >
+          <span className="file-tree-twisty" aria-hidden="true" />
+          <CircleAlert className="upload-alert" aria-hidden="true" />
+          {'name' in problem ? (
+            <>
+              <span className="file-tree-name">{problem.name}</span>
+              <span className="upload-status">{problem.text}</span>
+            </>
+          ) : (
+            <span className="file-tree-name">{problem.text}</span>
+          )}
+          {index === 0 && dismiss && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="upload-action"
+              aria-label="Dismiss"
+              title="Dismiss"
+              onClick={dismiss}
+            >
+              <X size={14} />
+            </Button>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** A batch of several, as one row: how much of it is sent, and the way to see its files. */
+function UploadSummary({
+  items,
+  waiting,
+  store,
+  open,
+  onToggle,
+}: {
+  items: readonly UploadItem[];
+  waiting: readonly UploadItem[];
+  store: Uploads;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const size = items.reduce((total, item) => total + item.size, 0);
+  const sent = items.reduce((total, item) => total + item.sent, 0);
+  const done = items.filter((item) => item.state === 'done').length;
+  const label = `Uploading ${items.length.toLocaleString()} files`;
+  return (
+    <div className="upload-row upload-summary" onClick={onToggle}>
+      <button
+        type="button"
+        className="file-tree-twisty upload-toggle"
+        aria-expanded={open}
+        aria-label={open ? 'Hide the files' : 'Show the files'}
+        onClick={(event) => {
+          event.stopPropagation();
+          onToggle();
+        }}
+      >
+        <ChevronRight size={14} />
+      </button>
+      <Upload className="upload-alert" aria-hidden="true" />
+      <span className="file-tree-name">{label}</span>
+      <span className="upload-status">
+        {size ? `${formatSize(sent)} of ${formatSize(size)}` : `${done} of ${items.length}`}
+      </span>
+      <UploadCancel name={label} keys={waiting.map((item) => item.key)} store={store} />
+      <UploadProgress label={label} done={size ? sent / size : done / items.length} />
+    </div>
+  );
+}
+
+/** A file, or a folder's files, of an upload, as a row of the tree would show it. */
+function UploadRow({
+  row,
+  dir,
+  depth,
+  store,
+}: {
+  row: { folder?: string; items: UploadItem[] };
+  dir: string;
+  depth: number;
+  store: Uploads;
+}) {
+  const dark = useDarkTheme();
+  const name = row.folder ?? row.items[0]!.name;
+  const waiting = row.items.filter(pending);
+  const size = row.items.reduce((total, item) => total + item.size, 0);
+  const sent = row.items.reduce((total, item) => total + item.sent, 0);
+  const done = row.items.filter((item) => item.state === 'done').length;
+  const item = row.items[0]!;
+  const status = row.folder
+    ? waiting.length
+      ? `${done.toLocaleString()} of ${row.items.length.toLocaleString()} files`
+      : done === row.items.length
+        ? 'Uploaded'
+        : `${done.toLocaleString()} of ${row.items.length.toLocaleString()} uploaded`
+    : item.state === 'queued'
+      ? 'Waiting'
+      : item.state === 'retrying'
+        ? 'Trying again…'
+        : item.state === 'done'
+          ? 'Uploaded'
+          : item.state === 'cancelled'
+            ? 'Cancelled'
+            : item.state === 'skipped'
+              ? 'Skipped'
+              : item.state === 'exists'
+                ? 'Already exists'
+                : item.state === 'failed'
+                  ? 'Not uploaded'
+                  : `${formatSize(item.sent)} of ${formatSize(item.size)}`;
+  const icon = row.folder ? folderIconName(name, false) : fileIconName(name);
+  return (
+    <div
+      className="upload-row"
+      style={{ '--depth': depth } as CSSProperties}
+      title={row.folder ? join(dir, row.folder) : join(item.dir, item.name)}
+    >
+      <span className="file-tree-twisty" aria-hidden="true" />
+      <img className="file-tree-icon" src={iconUrl(icon, dark)} alt="" />
+      <span className="file-tree-name">{name}</span>
+      <span
+        className="upload-status"
+        title={item.state === 'retrying' ? 'The connection was lost; trying again' : undefined}
+      >
+        {status}
+      </span>
+      {waiting.length > 0 && (
+        <UploadCancel name={name} keys={waiting.map((each) => each.key)} store={store} />
+      )}
+      {waiting.length > 0 && (
+        <UploadProgress label={name} done={size ? sent / size : done / row.items.length} />
+      )}
+    </div>
+  );
+}
+
+function UploadCancel({
+  name,
+  keys,
+  store,
+}: {
+  name: string;
+  keys: readonly string[];
+  store: Uploads;
+}) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="upload-action"
+      aria-label={`Cancel ${name}`}
+      title="Cancel"
+      onClick={(event) => {
+        event.stopPropagation();
+        store.cancel(keys);
+      }}
+    >
+      <X size={14} />
+    </Button>
+  );
+}
+
+/** How far an upload is, as a line along the foot of its row. */
+function UploadProgress({ label, done }: { label: string; done: number }) {
+  const percent = Math.round(Math.min(1, Math.max(0, done)) * 100);
+  return (
+    <span
+      className="upload-progress"
+      role="progressbar"
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={percent}
+      style={{ '--done': percent / 100 } as CSSProperties}
+    />
   );
 }
 
@@ -1478,115 +1763,4 @@ function uploadRows(items: readonly UploadItem[]) {
     inFolder.push(item);
   }
   return rows;
-}
-
-function sending(item: UploadItem) {
-  return item.state === 'starting' || item.state === 'sending' || item.state === 'retrying';
-}
-
-function MentionUpload({ path }: { path: string }) {
-  const workspace = useWorkspace();
-  if (!workspace) return null;
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      aria-label={`Mention ${basename(path)}`}
-      title="Mention"
-      onClick={() => workspace.mention(mentionPath(path))}
-    >
-      <AtSign size={16} />
-    </Button>
-  );
-}
-
-function FileUpload({ item, store }: { item: UploadItem; store: Uploads }) {
-  return (
-    <div className="upload-item" data-state={item.state}>
-      <div className="upload-heading">
-        <FileIcon size={14} aria-hidden="true" />
-        <strong title={item.name}>{item.name}</strong>
-        <span className="muted small">
-          {item.state === 'done'
-            ? 'Uploaded'
-            : item.state === 'queued'
-              ? 'Waiting'
-              : item.state === 'retrying'
-                ? 'Connection lost; trying again…'
-                : item.state === 'cancelled'
-                  ? 'Cancelled'
-                  : item.state === 'skipped'
-                    ? 'Skipped'
-                    : `${formatSize(item.sent)} of ${formatSize(item.size)}`}
-        </span>
-        {item.state === 'exists' && (
-          <Button size="sm" onClick={() => store.replace([item.key])}>
-            Replace
-          </Button>
-        )}
-        {item.state === 'done' && <MentionUpload path={join(item.dir, item.name)} />}
-        {pending(item) && (
-          <Button size="sm" variant="ghost" onClick={() => store.cancel([item.key])}>
-            Cancel
-          </Button>
-        )}
-      </div>
-      {sending(item) && <progress value={item.sent} max={item.size || 1} />}
-      {item.error && <p className="small notice-inline">{item.error}</p>}
-    </div>
-  );
-}
-
-/** A folder's files as one upload; of those that failed, the first few say why. */
-function FolderUpload({
-  path,
-  items,
-  store,
-}: {
-  path: string;
-  items: readonly UploadItem[];
-  store: Uploads;
-}) {
-  const waiting = items.filter(pending);
-  const done = items.filter((item) => item.state === 'done').length;
-  const failed = items.filter((item) => item.state === 'failed');
-  const size = items.reduce((total, item) => total + item.size, 0);
-  const sent = items.reduce((total, item) => total + item.sent, 0);
-  const counted = `${done.toLocaleString()} of ${items.length.toLocaleString()}`;
-  return (
-    <div className="upload-item">
-      <div className="upload-heading">
-        <Folder size={14} aria-hidden="true" />
-        <strong title={basename(path)}>{basename(path)}</strong>
-        <span className="muted small">
-          {waiting.length
-            ? `${counted} files`
-            : done === items.length
-              ? 'Uploaded'
-              : `${counted} uploaded`}
-        </span>
-        {!waiting.length && done > 0 && <MentionUpload path={path} />}
-        {waiting.length > 0 && (
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={() => store.cancel(waiting.map((item) => item.key))}
-          >
-            Cancel
-          </Button>
-        )}
-      </div>
-      {waiting.length > 0 && <progress value={size ? sent : done} max={size || items.length} />}
-      {failed.slice(0, 3).map((item) => (
-        <p className="small notice-inline" key={item.key}>
-          {item.folder?.path}: {item.error}
-        </p>
-      ))}
-      {failed.length > 3 && (
-        <p className="small notice-inline">
-          {(failed.length - 3).toLocaleString()} more could not be uploaded.
-        </p>
-      )}
-    </div>
-  );
 }

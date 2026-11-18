@@ -1,6 +1,6 @@
 # API schema maintenance
 
-`meka-0.95.0.json` was captured from Meka `0.95.0`, commit `9c804c6ce7217b18580af3a8a18051c10c707a41`, through `/v1/openapi.json` with `[serve].docs = true`. The generated REST types are committed in `web/src/api/schema.d.ts`; runtime connections do not require schema access.
+`meka-0.96.0.json` was captured from Meka `0.96.0`, commit `c3653471788139e451e8904ff9f89567d07167b9`, through `/v1/openapi.json` with `[serve].docs = true`. The generated REST types are committed in `web/src/api/schema.d.ts`; runtime connections do not require schema access.
 
 Meka Studio requires Meka 0.95.0 or newer and refuses older servers when it connects. Compared with 0.68.0, the 0.70.0 and 0.71.0 APIs change these shapes the client used:
 
@@ -152,16 +152,22 @@ Meka Studio requires Meka 0.95.0 or newer and refuses older servers when it conn
 - An import takes this installation's level and approvals, and leaves out a directory the archive names that is not one here. The client sends the archive as it is.
 - The export archive is format 30, and 0.95.0 brings an archive of format 3 or later forward on import.
 
+0.96.0 changes no shape the client uses, so 0.95.0 remains the minimum. It adds these:
+
+- `GET /v1/info` states `default_working_directory`, where a session works when its creation names none, to a token holding a `sessions` scope. A new conversation's folder picker names it, and its Files and terminal start there; from 0.95.0, which does not state it, they start in the home folder.
+- A working directory whose path is not valid Unicode is refused, which the client shows as any refused request.
+- `meka serve --exit-on-stdin-close` drains and ends the server when its standard input closes. The desktop app starts its Meka so, holding the pipe for as long as Meka should run.
+
 `tool_call.completed` still carries `change`, the whole text a file, memory, or skill change left before and after, which can run to megabytes. The SSE parser therefore skips data past 2,000,000 characters and keeps the frame's id, so a reconnect cannot replay it. A skipped tool completion keeps its call, outcome, and correlation from the ends of its JSON, and other skipped events become a notice.
 
 The feed's 409 covers `session-not-loaded`: a token with only `sessions:r` does not load a session by attaching. The client then shows the saved conversation and retries the feed until the server loads the session. `POST /compact` runs as a turn on the feed, with `source: "compaction"` on `turn.started`; the client shows it as compacting and does not notify when it ends.
 
-Schema capture is a manual maintenance step. Choose a disposable Meka instance with `[serve].docs = true`, confirm its version, and download its schema. For a 0.95.0 instance listening on port 8081:
+Schema capture is a manual maintenance step. Choose a disposable Meka instance with `[serve].docs = true`, confirm its version, and download its schema. For a 0.96.0 instance listening on port 8081:
 
 ```sh
-curl --fail --silent --show-error http://127.0.0.1:8081/v1/openapi.json --output docs/api/meka-0.95.0.json
+curl --fail --silent --show-error http://127.0.0.1:8081/v1/openapi.json --output docs/api/meka-0.96.0.json
 cd web
-npx prettier --write ../docs/api/meka-0.95.0.json
+npx prettier --write ../docs/api/meka-0.96.0.json
 npm run api:generate
 ```
 

@@ -75,49 +75,55 @@ export function NewConversation() {
               <h1>New conversation</h1>
             )}
             {!canWrite && <p className="muted small">This connection is read only.</p>}
-            {/* The recovery notice explains an unconfirmed creation in place of its generic error. */}
-            <ErrorNotice error={creation.uncertain ? undefined : creation.error} />
-            <ErrorNotice error={error ?? profiles.error} />
-            {creation.uncertain && (
-              <div className="new-session-recovery">
-                <NoticeMessage
-                  notice={{
-                    level: 'warning',
-                    text: 'Session creation wasn’t confirmed, so the server may have created it. Check the session list before trying again.',
-                  }}
-                />
-                <div className="message-actions">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => {
-                      storage.layout({ sessionsCollapsed: false });
-                      setMobileSessionsOpen(true);
+            <div className="new-session-notices">
+              {/* The recovery notice explains an unconfirmed creation in place of its generic error. */}
+              <ErrorNotice
+                error={creation.uncertain ? undefined : creation.error}
+                onDismiss={creation.acknowledge}
+              />
+              <ErrorNotice error={error} onDismiss={() => setError(undefined)} />
+              <ErrorNotice error={error ? undefined : profiles.error} />
+              {creation.uncertain && (
+                <div className="new-session-recovery">
+                  <NoticeMessage
+                    notice={{
+                      level: 'warning',
+                      text: 'Session creation wasn’t confirmed, so the server may have created it. Check the session list before trying again.',
                     }}
-                  >
-                    Show sessions
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={creation.acknowledge}>
-                    I reviewed the session list
-                  </Button>
-                </div>
-              </div>
-            )}
-            {draft.conflict && (
-              <div className="notice">
-                <div>
-                  <p>This draft changed in another tab. Choose which version to keep.</p>
+                  />
                   <div className="message-actions">
-                    <Button size="sm" variant="secondary" onClick={() => draft.resolve(false)}>
-                      Keep mine
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        storage.layout({ sessionsCollapsed: false });
+                        setMobileSessionsOpen(true);
+                      }}
+                    >
+                      Show sessions
                     </Button>
-                    <Button size="sm" variant="secondary" onClick={() => draft.resolve(true)}>
-                      Use other tab
+                    <Button size="sm" variant="ghost" onClick={creation.acknowledge}>
+                      I reviewed the session list
                     </Button>
                   </div>
                 </div>
-              </div>
-            )}
+              )}
+              {draft.conflict && (
+                <div className="notice">
+                  <div>
+                    <p>This draft changed in another tab. Choose which version to keep.</p>
+                    <div className="message-actions">
+                      <Button size="sm" variant="secondary" onClick={() => draft.resolve(false)}>
+                        Keep mine
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => draft.resolve(true)}>
+                        Use other tab
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           </header>
           {!noProfile && (
             <MessageComposer

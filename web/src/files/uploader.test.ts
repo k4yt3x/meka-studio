@@ -51,7 +51,7 @@ it('sends a file in pieces and carries on from where Meka Studio stands after a 
   const uploads = new Uploads(s.gateway, landed);
   uploads.add([{ file: new File(['0123456789'], 'data.bin') }], '/work/project');
   await vi.runAllTimersAsync();
-  await vi.waitFor(() => expect(uploads.getSnapshot()[0]?.items[0]?.state).toBe('done'));
+  await vi.waitFor(() => expect(landed).toHaveBeenCalled());
   expect(new TextDecoder().decode(s.stored())).toBe('0123456789');
   expect(s.calls).toEqual([
     'POST /api/files/uploads',
@@ -70,7 +70,7 @@ it('asks before replacing a file of the same name', async () => {
   uploads.add([{ file: new File(['0123456789'], 'data.bin') }], '/work');
   await vi.waitFor(() => expect(uploads.getSnapshot()[0]?.items[0]?.state).toBe('exists'));
   uploads.replace([uploads.getSnapshot()[0]!.items[0]!.key]);
-  await vi.waitFor(() => expect(uploads.getSnapshot()[0]?.items[0]?.state).toBe('done'));
+  await vi.waitFor(() => expect(uploads.getSnapshot()).toEqual([]));
   expect(vi.mocked(s.gateway.send).mock.calls.at(-1)).toEqual([
     'POST',
     '/api/files/uploads/u1/finish',
@@ -146,7 +146,8 @@ const empty = (name: string, path?: string) => ({
 
 it(`sends ${UPLOADS_AT_ONCE} at a time, the rest waiting their turn`, async () => {
   const s = landing({ hold: true });
-  const uploads = new Uploads(s.gateway, () => {});
+  const landed = vi.fn();
+  const uploads = new Uploads(s.gateway, landed);
   uploads.add(
     Array.from({ length: 25 }, (_, index) => empty(`${index}.txt`)),
     '/work',
@@ -163,19 +164,21 @@ it(`sends ${UPLOADS_AT_ONCE} at a time, the rest waiting their turn`, async () =
       .map((item) => item.key),
   );
   let released = 3;
-  while (states().some((state) => state !== 'done' && state !== 'cancelled')) {
+  while (uploads.getSnapshot().length) {
     for (const release of s.held.slice(released)) release();
     released = s.held.length;
     await new Promise((resolve) => setTimeout(resolve));
   }
-  expect(states().filter((state) => state === 'done')).toHaveLength(20);
+  expect(landed).toHaveBeenCalledTimes(20);
   expect(s.held).toHaveLength(20);
 });
 
 it('makes the folders a dropped folder needs, once each, and empty ones too', async () => {
   const s = landing();
   const landed = vi.fn();
+  const finished = vi.fn();
   const uploads = new Uploads(s.gateway, landed);
+  uploads.onFinished(finished);
   uploads.add(
     [
       empty('a.txt', 'photos/a.txt'),
@@ -186,15 +189,17 @@ it('makes the folders a dropped folder needs, once each, and empty ones too', as
     '/work',
     { folders: ['photos', 'photos/2024', 'photos/empty'] },
   );
-  await vi.waitFor(() =>
-    expect(uploads.getSnapshot()[0]!.items.every((item) => item.state === 'done')).toBe(true),
-  );
   expect(uploads.getSnapshot()[0]!.items.map((item) => [item.dir, item.folder?.name])).toEqual([
     ['/work/photos', 'photos'],
     ['/work/photos/2024', 'photos'],
     ['/work/photos/2024', 'photos'],
     ['/work', undefined],
   ]);
+  // Once it has all landed, the batch leaves the list, naming what it put in its folder.
+  await vi.waitFor(() =>
+    expect(finished).toHaveBeenCalledWith('/work', ['/work/photos', '/work/loose.txt']),
+  );
+  expect(uploads.getSnapshot()).toEqual([]);
   await vi.waitFor(() =>
     expect(s.calls.filter((call) => call.startsWith('folder')).sort()).toEqual([
       'folder /work/photos',
@@ -209,14 +214,55 @@ it('replaces or skips what is there already, for the whole batch', async () => {
   const s = landing({ there: ['a.txt', 'b.txt', 'c.txt', 'd.txt'] });
   const uploads = new Uploads(s.gateway, () => {});
   const states = (index: number) => uploads.getSnapshot()[index]!.items.map((item) => item.state);
+  const finished = vi.fn();
+  uploads.onFinished(finished);
   uploads.add([empty('a.txt'), empty('b.txt'), empty('new.txt')], '/work');
   await vi.waitFor(() => expect(states(0)).toEqual(['exists', 'exists', 'done']));
   uploads.decide(uploads.getSnapshot()[0]!.key, 'skip');
-  expect(states(0)).toEqual(['skipped', 'skipped', 'done']);
+  // Nothing is left to do, so the batch leaves the list with what landed of it.
+  expect(uploads.getSnapshot()).toEqual([]);
+  expect(finished).toHaveBeenLastCalledWith('/work', ['/work/new.txt']);
   uploads.add([empty('c.txt'), empty('d.txt')], '/work');
-  await vi.waitFor(() => expect(states(1)).toEqual(['exists', 'exists']));
-  uploads.decide(uploads.getSnapshot()[1]!.key, 'replace');
-  await vi.waitFor(() => expect(states(1)).toEqual(['done', 'done']));
+  await vi.waitFor(() => expect(states(0)).toEqual(['exists', 'exists']));
+  uploads.decide(uploads.getSnapshot()[0]!.key, 'replace');
+  await vi.waitFor(() =>
+    expect(finished).toHaveBeenLastCalledWith('/work', ['/work/c.txt', '/work/d.txt']),
+  );
   expect(s.calls).toContain('upload d.txt replacing');
-  expect(uploads.getSnapshot()[1]!.items.every((item) => !item.error)).toBe(true);
+});
+
+it('names the empty folders a batch brought, and a batch of folders alone, once made', async () => {
+  const s = landing();
+  const finished = vi.fn();
+  const uploads = new Uploads(s.gateway, () => {});
+  uploads.onFinished(finished);
+  uploads.add([empty('a.txt')], '/work', { folders: ['empty', 'empty/inner'] });
+  await vi.waitFor(() =>
+    expect(finished).toHaveBeenCalledWith('/work', ['/work/a.txt', '/work/empty']),
+  );
+  uploads.add([], '/work', { folders: ['alone'] });
+  await vi.waitFor(() => expect(finished).toHaveBeenLastCalledWith('/work', ['/work/alone']));
+  expect(finished).toHaveBeenCalledTimes(2);
+  expect(uploads.getSnapshot()).toEqual([]);
+});
+
+it('keeps a batch whose empty folder could not be made, though its files landed', async () => {
+  let refuse: () => void = () => {};
+  const send = vi.fn(async (_method: string, path: string) => {
+    if (path === '/api/files/folders')
+      return new Promise((_resolve, reject) => {
+        refuse = () => reject(new ApiError(403, { detail: 'Not allowed.' }));
+      });
+    if (path === '/api/files/uploads') return { id: 'u1', offset: 0, size: 0, chunk_bytes: 4 };
+    return undefined;
+  });
+  const landed = vi.fn();
+  const uploads = new Uploads({ send } as unknown as GatewayClient, landed);
+  uploads.add([empty('a.txt')], '/work', { folders: ['empty'] });
+  await vi.waitFor(() => expect(landed).toHaveBeenCalledWith('/work/a.txt'));
+  expect(uploads.getSnapshot()).toHaveLength(1);
+  refuse();
+  await vi.waitFor(() =>
+    expect(uploads.getSnapshot()[0]?.note).toBe('/work/empty could not be made: Not allowed.'),
+  );
 });

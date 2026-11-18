@@ -656,7 +656,7 @@ export function SessionList({
         )}
       </div>
       <div className="list-footer">
-        <ErrorNotice error={action.error} />
+        <ErrorNotice error={action.error} onDismiss={action.reset} />
         <AccountMenu>
           <label className={`account-action ${!canWrite ? 'disabled' : ''}`} title="Import archive">
             <Import size={16} aria-hidden="true" />

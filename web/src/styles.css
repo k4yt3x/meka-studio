@@ -596,11 +596,13 @@ progress:where(:not([data-surface^='monaco'] *)) {
   margin: 0 auto;
   padding: 48px 44px 70px;
 }
+/* As tall as a button, so a heading without one sits where a heading with one does. */
 .page-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 20px;
+  min-height: 36px;
   margin-bottom: 32px;
 }
 .panel {
@@ -903,6 +905,15 @@ pre.bounded {
 .facts dd > .badge {
   margin: -2px 0;
 }
+/* A folder's button follows the last line of its path, overhanging the line as the badge does. */
+.facts dd > .open-folder {
+  vertical-align: middle;
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 5px;
+  margin: -4px 0 -4px 4px;
+}
 .welcome {
   --welcome-block-padding: 36px;
   --welcome-inline-padding: 24px;
@@ -969,7 +980,8 @@ pre.bounded {
   color: inherit;
   cursor: pointer;
 }
-.appearance-panel {
+/* A panel of fields, laid out as labels beside their controls while it has room. */
+.panel:has(> .field-grid, > .form-stack > .field-grid) {
   container-type: inline-size;
 }
 .notification-settings-row {
@@ -1202,36 +1214,36 @@ pre.bounded {
     transform: translateX(50%);
   }
 }
-.appearance-fields {
+.field-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 220px;
   gap: 18px 24px;
 }
-.appearance-fields > .field {
+.field-grid > .field {
   grid-column: 1 / -1;
   display: grid;
   grid-template-columns: subgrid;
   align-items: center;
   column-gap: inherit;
 }
-.appearance-fields .pixel-input,
+.field-grid .pixel-input,
 .reading-options .pixel-input {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg);
 }
-.appearance-fields .pixel-input:has(input:focus),
+.field-grid .pixel-input:has(input:focus),
 .reading-options .pixel-input:has(input:focus) {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
 }
-.appearance-fields .pixel-input-field input,
+.field-grid .pixel-input-field input,
 .reading-options .pixel-input-field input {
   border: 0;
   background: transparent;
   min-height: 34px;
   height: 34px;
 }
-.appearance-fields select {
+.field-grid select {
   min-height: 38px;
   height: 38px;
   padding-block: 6px;
@@ -1239,14 +1251,14 @@ pre.bounded {
   text-align: center;
   text-align-last: center;
 }
-.appearance-fields select option {
+.field-grid select option {
   text-align: left;
 }
 @container (max-width: 440px) {
-  .appearance-fields {
+  .field-grid {
     grid-template-columns: minmax(0, 1fr);
   }
-  .appearance-fields > .field {
+  .field-grid > .field {
     grid-template-columns: minmax(0, 1fr);
     row-gap: 8px;
   }
@@ -1277,12 +1289,12 @@ pre.bounded {
 .editor-actions > [type='submit'] {
   margin-left: auto;
 }
-/* In a settings panel the form keeps to a field's width, its button on the left as other panels'. */
+/* In a settings panel a form's buttons sit on the left, as other panels' do. */
+.settings-groups > .panel .form-stack > .actions {
+  justify-content: flex-start;
+}
 .password-form {
   max-width: 440px;
-}
-.password-form > .actions {
-  justify-content: flex-start;
 }
 .panel > h2 + .password-form {
   margin-top: 18px;
@@ -1345,6 +1357,31 @@ pre.bounded {
 .button .loading {
   padding: 0;
   color: inherit;
+}
+/* In the middle of its room: all of it where that has a height of its own, such as a scrolled
+   section, or else a band below what is above it. */
+.loading-fill {
+  flex: 1 0 auto;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+  min-height: 200px;
+  padding: 24px;
+  text-align: center;
+  animation: loading-appear 150ms ease-out 200ms both;
+}
+:is(.settings-section, .main-content) > .loading-fill {
+  min-height: 100%;
+}
+@keyframes loading-appear {
+  from {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loading-fill {
+    animation: none;
+  }
 }
 .spin {
   animation: spin 1s linear infinite;
@@ -2659,8 +2696,24 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
 .new-session-recovery > .notice {
   margin: 0;
 }
+/* What went wrong stands between the title and the input, as far from each as they are apart. */
+.new-conversation {
+  --new-session-gap: 26px;
+}
+.new-session-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: var(--new-session-gap);
+}
+.new-session-notices:empty {
+  display: none;
+}
+.new-session-notices > * {
+  margin: 0;
+}
 .new-conversation .composer-area {
-  padding-top: 26px;
+  padding-top: var(--new-session-gap);
 }
 /* The new session's input stands in the middle of the page, a card however narrow the page. */
 .new-conversation .conversation-width {
@@ -2791,6 +2844,9 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
   min-width: 0;
   min-height: 0;
   overflow: auto;
+  /* What loads fills the rest below the toolbar. */
+  display: flex;
+  flex-direction: column;
 }
 .workspace-page > .page-toolbar {
   display: none;
@@ -3108,9 +3164,17 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
   accent-color: var(--accent);
   cursor: pointer;
 }
+/* The guide stays where it was last placed while it is hidden; its frame, the pane's own size,
+   keeps a place from a larger window from making the app scroll. */
+.center-guide-frame {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+  pointer-events: none;
+}
 .center-guide {
   position: absolute;
-  z-index: 2;
   width: 0;
   border-left: 1px dashed var(--accent);
   transform: translateX(-0.5px);
@@ -3761,15 +3825,16 @@ summary.compaction-rule:hover::after {
   min-width: 0;
 }
 /* Its dismiss button sits in the corner, in the notice's colour, without making it taller. */
-.conversation-notice > .notice-dismiss {
+.notice > .notice-dismiss {
   width: 28px;
   height: 28px;
   min-height: 28px;
-  margin: -6px -8px -6px 0;
+  /* Centered on the first line, as the notice's icon is. */
+  margin: -3px -8px -6px 0;
   padding: 6px;
   color: inherit;
 }
-.conversation-notice > .notice-dismiss svg {
+.notice > .notice-dismiss svg {
   margin-top: 0;
 }
 .conversation-notice strong {
@@ -4783,9 +4848,6 @@ body:has(.settings-dialog[data-state='open']) .approval-tray {
   overflow-wrap: anywhere;
   margin: 0;
 }
-.mcp-leftovers {
-  margin-top: 24px;
-}
 .mcp-error {
   color: var(--danger);
   overflow-wrap: anywhere;
@@ -5296,6 +5358,7 @@ body:has(.panel-resize-handle[data-resizing='true']) {
 .inline-heading {
   display: inline;
   margin: 0;
+  color: var(--text);
 }
 details > summary:has(.inline-heading) {
   cursor: pointer;
@@ -5352,16 +5415,11 @@ details > summary:has(.inline-heading) {
 .file-browser > .path-bar + * {
   margin-top: 2px;
 }
-.file-browser > :is(.upload-list, .notice) {
+.file-browser > .notice {
   margin-block: 4px;
 }
 .file-browser > .file-tree {
   margin-inline: 0;
-}
-.file-browser > .upload-list {
-  flex-shrink: 0;
-  max-height: 40%;
-  overflow: auto;
 }
 /* Files fills its panel, or its sheet on a phone, so what is dropped below the tree lands too. */
 .files-panel-body {
@@ -5723,78 +5781,101 @@ a.menu-item {
   color: inherit;
   text-decoration: none;
 }
+/* Uploads stand above the tree in rows like its own, only while there is something to see. */
 .upload-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-bottom: 14px;
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow: auto;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
 }
-.upload-batch {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 6px 6px 6px 12px;
-  font-size: 0.8rem;
-}
-.upload-batch:has(.notice-inline) {
-  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
-}
-.upload-batch > .notice-inline {
-  margin: 4px 8px 4px 0;
-}
-/* A large batch scrolls within, so the folder stays in sight below it. */
-.upload-items {
-  max-height: 260px;
-  overflow-y: auto;
-}
-.upload-item {
-  padding: 2px 0;
-}
-.upload-heading {
+.upload-row {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
-  min-height: 36px;
+  gap: 4px;
+  height: var(--row-height);
+  padding: 0 4px 0 calc(8px + var(--depth, 0) * var(--indent));
+  color: var(--text);
 }
-.upload-heading strong {
-  flex: 1;
+.upload-summary {
+  cursor: pointer;
+}
+.upload-summary:hover {
+  background: var(--surface);
+}
+.upload-toggle {
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+}
+.upload-toggle[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+.upload-alert {
+  flex: 0 0 var(--icon);
+  width: var(--icon);
+  height: var(--icon);
+  padding: 1px;
+  color: var(--muted);
+}
+.upload-status {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 0.9em;
+  white-space: nowrap;
+}
+.upload-row[data-state='exists'] .upload-alert {
+  color: var(--warning);
+}
+.upload-row[data-state='failed'] {
+  color: var(--danger);
+}
+.upload-row[data-state='failed'] .upload-alert {
+  color: inherit;
+}
+/* A failure's name gives way to its reason only down to a few letters. */
+.upload-row[data-state='failed'] .file-tree-name:has(+ .upload-status) {
+  flex: 0 1 auto;
+  min-width: 4em;
+}
+.upload-row[data-state='failed'] .upload-status {
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
+  color: inherit;
+  opacity: 0.8;
 }
-.upload-heading > span {
+.upload-row > .upload-action {
   flex-shrink: 0;
-  white-space: nowrap;
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  padding: 4px;
 }
-.upload-heading > svg {
+.upload-row > .upload-choice {
   flex-shrink: 0;
-  color: var(--muted);
+  min-height: 0;
+  height: calc(var(--row-height) - 4px);
+  padding: 0 6px;
+  font-size: 0.9em;
 }
-.upload-existing {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 2px 0 6px;
+/* How far an upload is: a line along the foot of its row. */
+.upload-progress {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: calc(var(--done) * 100%);
+  height: 2px;
+  background: var(--accent);
+  transition: width 0.2s;
 }
-.upload-existing span {
-  flex: 1;
-}
-.upload-item progress {
-  display: block;
-  width: calc(100% - 8px);
-  height: 6px;
-  margin: 2px 0 6px;
-  accent-color: var(--accent);
-}
-.upload-item .notice-inline {
-  margin: 0 8px 6px 0;
-}
-.upload-batch > .actions {
-  justify-content: flex-end;
-}
-.notice-inline {
-  color: var(--danger);
-  margin: 6px 0 0;
+/* A large batch scrolls within, so the folder stays in sight below it. */
+.upload-items {
+  max-height: calc(8 * var(--row-height));
+  overflow-y: auto;
 }
 /* Chrome's overlay scrollbars show only while scrolling. A styled scrollbar is never an overlay
    one, so the bounded lists' stay in sight, faint until pointed at, saying there is more. Chrome

@@ -237,13 +237,7 @@ function Workspace() {
               Skip to content
             </a>
             <main id="main-content" tabIndex={-1} className="main-content">
-              <Suspense
-                fallback={
-                  <div className="page">
-                    <Loading />
-                  </div>
-                }
-              >
+              <Suspense fallback={<Loading fill />}>
                 <Outlet />
               </Suspense>
             </main>

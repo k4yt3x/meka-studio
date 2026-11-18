@@ -129,7 +129,7 @@ export function SettingsDialog({
           ))}
         </nav>
         <div className="settings-section" key={shown.id} data-section={shown.id}>
-          <Suspense fallback={<Loading />}>{content(shown.id)}</Suspense>
+          <Suspense fallback={<Loading fill />}>{content(shown.id)}</Suspense>
         </div>
       </div>
     </Dialog>

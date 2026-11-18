@@ -19,6 +19,7 @@ import { useOverlayPadding } from '../components/visual-viewport';
 import { useDarkTheme } from '../components/theme';
 import { useTextZoom } from '../components/text-zoom';
 import { fileIconName, folderIconName, iconUrl } from '../files/icons';
+import { treeMeasures } from './file-tree-measures';
 import { findByName, type Row } from '../files/tree-model';
 import { LETTERS, markWords, type GitMark } from '../files/git';
 import { formatSize, within } from '../files/paths';
@@ -33,17 +34,6 @@ export interface Choosing {
   touch?: boolean;
 }
 
-/**
- * Rows this tall, in pixels, at the default font size, so where each is follows from its place;
- * on a touch screen they are at least as tall as a finger needs.
- */
-const ROW_HEIGHT = 22;
-const TOUCH_ROW_HEIGHT = 36;
-/** The font size the tree's measures are given at, which others scale. */
-const BASE_FONT_SIZE = 13;
-/** An icon's size, and how far each level is indented, at the default font size. */
-const ICON_SIZE = 16;
-const INDENT = 14;
 /** Past this many rows, only those in sight, and a few around them, are drawn. */
 const WINDOW_FROM = 300;
 const OVERSCAN = 20;
@@ -111,8 +101,8 @@ export function FileTree({
   renaming: string | undefined;
   /** The folder what is dragged would land in. */
   dropTarget: string | undefined;
-  /** An entry asked for from elsewhere, scrolled to once it shows. */
-  reveal: { path: string; nonce: number } | undefined;
+  /** An entry asked for from elsewhere, scrolled to once it shows; each new one asked once. */
+  reveal: { path: string } | undefined;
   /** The menu for the entries `paths`, chosen. */
   menu: (paths: string[], parts: MenuParts) => ReactNode;
   /** The menu for the folder shown, opened beside the entries. */
@@ -141,9 +131,7 @@ export function FileTree({
   const coarse = useMediaQuery('(pointer: coarse)');
   const dark = useDarkTheme();
   const collisionPadding = useOverlayPadding();
-  // Measured in whole pixels, so the guides between levels stay sharp.
-  const scaled = (pixels: number) => Math.round((pixels * fontSize) / BASE_FONT_SIZE);
-  const rowHeight = Math.max(coarse ? TOUCH_ROW_HEIGHT : 0, scaled(ROW_HEIGHT));
+  const { rowHeight, style: measures } = treeMeasures(fontSize, coarse);
   const scroller = useRef<HTMLDivElement>(null);
   // A tree is pointed at more than typed in: its keys work while the pointer is over it.
   useTextZoom(scroller, onZoom, { whileOver: true });
@@ -186,13 +174,13 @@ export function FileTree({
         element.scrollTop = top + rowHeight - element.clientHeight;
     }
   }
-  const revealed = useRef<number>(undefined);
+  const revealed = useRef<{ path: string }>(undefined);
   useLayoutEffect(() => {
-    if (!reveal || revealed.current === reveal.nonce) return;
+    if (!reveal || revealed.current === reveal) return;
     const index = rows.findIndex((row) => row.kind === 'entry' && row.path === reveal.path);
     const element = scroller.current;
     if (index < 0 || !element) return;
-    revealed.current = reveal.nonce;
+    revealed.current = reveal;
     element.scrollTop = Math.max(0, index * rowHeight - element.clientHeight / 2);
   });
   const typed = useRef({ text: '', at: 0 });
@@ -344,14 +332,7 @@ export function FileTree({
           role="tree"
           aria-label={`Files in ${rootName}`}
           aria-multiselectable="true"
-          style={
-            {
-              '--row-height': `${rowHeight}px`,
-              '--icon': `${scaled(ICON_SIZE)}px`,
-              '--indent': `${scaled(INDENT)}px`,
-              fontSize: `${fontSize}px`,
-            } as CSSProperties
-          }
+          style={measures}
           onScroll={(event) =>
             setView({
               top: event.currentTarget.scrollTop,

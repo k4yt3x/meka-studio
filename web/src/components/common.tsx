@@ -8,13 +8,20 @@ import {
   type ReactElement,
   type ReactNode,
 } from 'react';
-import { AlertCircle, Check, Copy, LoaderCircle, WrapText } from 'lucide-react';
+import { AlertCircle, Check, Copy, LoaderCircle, WrapText, X } from 'lucide-react';
 import { ConnectionError, errorMessage } from '../api/client';
 import { Button } from './ui/button';
 import { Dialog } from './ui/dialog';
 import { copyText } from './clipboard';
 import { scrollRegion } from './scrolling';
-export function ErrorNotice({ error }: { error: unknown }) {
+export function ErrorNotice({
+  error,
+  onDismiss,
+}: {
+  error: unknown;
+  /** Puts the error away, where the person may. */
+  onDismiss?: () => void;
+}) {
   if (error instanceof ConnectionError && error.reportedGlobally) return null;
   return error ? (
     <div className="notice error" role="alert">
@@ -22,6 +29,18 @@ export function ErrorNotice({ error }: { error: unknown }) {
       <div className="notice-text">
         <FoldedText text={errorMessage(error)} />
       </div>
+      {onDismiss && (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="notice-dismiss"
+          aria-label="Dismiss error"
+          title="Dismiss"
+          onClick={onDismiss}
+        >
+          <X size={15} />
+        </Button>
+      )}
     </div>
   ) : null;
 }
@@ -71,10 +90,15 @@ export function Empty({ title, children }: { title: string; children?: ReactNode
     </div>
   );
 }
-export function Loading({ label = 'Loading…' }: { label?: string }) {
+/**
+ * That something is loading: a line in what it is part of, or with `fill`, what a page, panel or
+ * dialog shows while its content loads, in the middle of the room it is given, after a moment so
+ * a quick load shows nothing.
+ */
+export function Loading({ label = 'Loading…', fill = false }: { label?: string; fill?: boolean }) {
   return (
-    <p className="loading" role="status">
-      <LoaderCircle size={16} className="spin" />
+    <p className={fill ? 'loading loading-fill' : 'loading'} role="status">
+      <LoaderCircle size={fill ? 22 : 16} className="spin" aria-hidden="true" />
       {label}
     </p>
   );

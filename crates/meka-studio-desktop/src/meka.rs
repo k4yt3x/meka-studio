@@ -3,13 +3,15 @@
 //!
 //! Meka runs `meka serve` on loopback with folders of the app's own, and nothing of any other Meka
 //! on the computer: every `MEKA_` variable the app was started with is taken out of its
-//! environment. It stops on SIGTERM, or on Windows on Ctrl+C, cancelling its turns and draining.
+//! environment. Its standard input is a pipe the app holds open for as long as Meka should run, and
+//! Meka cancels its turns, drains and ends when the pipe closes: the app closes it to stop Meka,
+//! and the system closes it when the app ends however it ends.
 
 use std::{
     ffi::OsString,
     net::{SocketAddr, TcpStream},
     path::{Path, PathBuf},
-    process::{Child, Command, ExitStatus, Stdio},
+    process::{Child, ChildStdin, Command, ExitStatus, Stdio},
     sync::{Mutex, mpsc},
     thread::JoinHandle,
     time::{Duration, Instant},
@@ -59,9 +61,15 @@ pub(crate) fn new_token(file: &Path) -> anyhow::Result<String> {
     Ok(token)
 }
 
-/// Makes sure Meka's `config.toml` in `config_dir` has a `[[serve.tokens]]` entry for
-/// `token_file` with every scope, making the file or adding the entry if it is not there. The
-/// rest of the file, which Meka writes itself, is left as written.
+/// The description of the app's own `[[serve.tokens]]` entry, by which the app finds it wherever
+/// its folders are.
+const ENTRY: &str = "Meka Studio Desktop";
+
+/// Makes sure Meka's `config.toml` in `config_dir` has the app's `[[serve.tokens]]` entry, the one
+/// described as [`ENTRY`], naming `token_file` with every scope, making the file or adding the
+/// entry if it is not there. An entry naming the token file where a moved portable copy kept it
+/// is pointed at the one it has now, since Meka does not start while an entry's file is missing.
+/// The rest of the file, which Meka writes itself, is left as written.
 pub(crate) fn ensure_token_entry(config_dir: &Path, token_file: &Path) -> anyhow::Result<()> {
     let path = config_dir.join("config.toml");
     let text = match std::fs::read_to_string(&path) {
@@ -94,12 +102,13 @@ pub(crate) fn ensure_token_entry(config_dir: &Path, token_file: &Path) -> anyhow
             )
         })?;
     let scopes = SCOPES.iter().copied().collect::<toml_edit::Array>();
-    let has = |entry: &toml_edit::Table| {
-        entry.get("token_file").and_then(toml_edit::Item::as_str) == Some(token_file)
+    let ours = |entry: &toml_edit::Table| {
+        entry.get("description").and_then(toml_edit::Item::as_str) == Some(ENTRY)
     };
-    let found = tokens.iter_mut().find(|entry| has(entry));
+    let found = tokens.iter_mut().find(|entry| ours(entry));
     match found {
         Some(entry) => {
+            let named = entry.get("token_file").and_then(toml_edit::Item::as_str);
             let current = entry
                 .get("scopes")
                 .and_then(toml_edit::Item::as_array)
@@ -109,15 +118,16 @@ pub(crate) fn ensure_token_entry(config_dir: &Path, token_file: &Path) -> anyhow
                         .filter_map(|value| value.as_str())
                         .collect::<Vec<_>>()
                 });
-            if current.as_deref() == Some(&SCOPES[..]) {
+            if named == Some(token_file) && current.as_deref() == Some(&SCOPES[..]) {
                 return Ok(());
             }
+            entry.insert("token_file", toml_edit::value(token_file));
             entry.insert("scopes", toml_edit::value(scopes));
         }
         None => {
             let mut entry = toml_edit::Table::new();
             entry.insert("token_file", toml_edit::value(token_file));
-            entry.insert("description", toml_edit::value("Meka Studio"));
+            entry.insert("description", toml_edit::value(ENTRY));
             entry.insert("scopes", toml_edit::value(scopes));
             tokens.push(entry);
         }
@@ -138,24 +148,31 @@ pub(crate) struct Launch {
     pub(crate) address: SocketAddr,
     /// The file its output goes to.
     pub(crate) log: PathBuf,
-    /// The file its process id is kept in while it runs, for the next start to find it by if the
-    /// app ended without stopping it.
-    pub(crate) pid_file: PathBuf,
     /// The folder it runs in, where new sessions open.
     pub(crate) home: PathBuf,
 }
 
 impl Launch {
-    /// The command that runs Meka, with every `MEKA_` variable of `inherited` taken out and its
-    /// folders given.
+    /// The command that runs Meka, with every `MEKA_` variable of `inherited` taken out, its
+    /// folders given, and its standard input a pipe it ends on when the pipe closes.
     fn command(&self, inherited: impl IntoIterator<Item = OsString>) -> Command {
         let mut command = Command::new(&self.binary);
         command
             .arg("serve")
             .arg("--bind")
             .arg(self.address.to_string())
+            .arg("--exit-on-stdin-close")
             .current_dir(&self.home)
-            .stdin(Stdio::null());
+            .stdin(Stdio::piped());
+        // In a process group of its own, so a terminal's Ctrl+C reaches the app alone.
+        #[cfg(unix)]
+        std::os::unix::process::CommandExt::process_group(&mut command, 0);
+        // Meka is a console program: without this, Windows would open a window for its console.
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(
+            &mut command,
+            windows_sys::Win32::System::Threading::CREATE_NO_WINDOW,
+        );
         for name in inherited {
             // Windows reads a variable's name in any case.
             let meka = name
@@ -177,7 +194,6 @@ impl Launch {
         let log = open_log(&self.log)?;
         let mut command = self.command(std::env::vars_os().map(|(name, _)| name));
         command.stdout(log.try_clone()?).stderr(log);
-        platform::prepare(&mut command);
         command
             .spawn()
             .with_context(|| format!("could not start {}", self.binary.display()))
@@ -190,8 +206,7 @@ enum Order {
     Stop(mpsc::Sender<()>),
 }
 
-/// Meka's process, run by a thread of its own for as long as the app runs: on Linux, a process
-/// started with a parent-death signal gets it when the thread that started it ends.
+/// Meka's process, run by a thread of its own for as long as the app runs.
 pub(crate) struct Meka {
     state: watch::Sender<MekaProcess>,
     orders: Mutex<mpsc::Sender<Order>>,
@@ -335,10 +350,8 @@ fn run(
     inbox: &mpsc::Receiver<Order>,
 ) -> End {
     let pid = child.id();
-    platform::adopt(&child);
-    if let Err(error) = write_whole(&launch.pid_file, pid.to_string().as_bytes()) {
-        tracing::warn!("could not note Meka's process id: {error:#}");
-    }
+    // Held until Meka is to stop: closed, it is what tells Meka to.
+    let input = child.stdin.take();
     state.send_modify(|current| current.pid = Some(pid));
     tracing::info!("Meka started as process {pid}");
     let end = loop {
@@ -364,80 +377,20 @@ fn run(
             Err(mpsc::RecvTimeoutError::Disconnected) => break End::Stop(None),
         }
     };
-    match stop(&mut child) {
+    match stop(&mut child, input) {
         Ok(status) => {
             tracing::info!("Meka stopped: {status}");
             state.send_modify(|current| current.last_exit = Some(status.to_string()));
-            forget_pid(&launch.pid_file);
         }
         Err(error) => tracing::error!("could not stop Meka: {error:#}"),
     }
     end
 }
 
-/// Removes the file Meka's process id was kept in.
-fn forget_pid(pid_file: &Path) {
-    if let Err(error) = std::fs::remove_file(pid_file)
-        && error.kind() != std::io::ErrorKind::NotFound
-    {
-        tracing::warn!("could not remove {}: {error}", pid_file.display());
-    }
-}
-
-/// Stops the Meka an earlier start of the app left running, if it ended without stopping it.
-/// Linux ends it with the app by a parent-death signal, and Windows by a job; macOS has neither.
-#[cfg(target_os = "macos")]
-pub(crate) fn stop_leftover(launch: &Launch) {
-    use std::os::unix::ffi::OsStrExt;
-    let Some(pid) = std::fs::read_to_string(&launch.pid_file)
-        .ok()
-        .and_then(|text| text.trim().parse::<libc::pid_t>().ok())
-    else {
-        return;
-    };
-    let mut path = [0_u8; libc::PROC_PIDPATHINFO_MAXSIZE as usize];
-    // SAFETY: the buffer is as long as the length given.
-    let length = unsafe {
-        libc::proc_pidpath(
-            pid,
-            path.as_mut_ptr().cast(),
-            u32::try_from(path.len()).unwrap_or(u32::MAX),
-        )
-    };
-    let running = usize::try_from(length)
-        .ok()
-        .filter(|&length| length > 0)
-        .and_then(|length| path.get(..length))
-        .map(|bytes| std::path::Path::new(std::ffi::OsStr::from_bytes(bytes)).to_path_buf());
-    let ours = |path: &Path| {
-        std::fs::canonicalize(path).ok() == std::fs::canonicalize(&launch.binary).ok()
-    };
-    if running.as_deref().is_none_or(|running| !ours(running)) {
-        forget_pid(&launch.pid_file);
-        return;
-    }
-    tracing::warn!("stopping the Meka an earlier start left running, process {pid}");
-    // SAFETY: plain signals to the process found running the app's Meka.
-    unsafe {
-        libc::kill(pid, libc::SIGTERM);
-        let asked = Instant::now();
-        while libc::kill(pid, 0) == 0 && asked.elapsed() < STOP_WAIT {
-            std::thread::sleep(POLL);
-        }
-        if libc::kill(pid, 0) == 0 {
-            libc::kill(pid, libc::SIGKILL);
-        }
-    }
-    forget_pid(&launch.pid_file);
-}
-
-/// Asks `child` to stop, and kills it if it has not within [`STOP_WAIT`].
-fn stop(child: &mut Child) -> anyhow::Result<ExitStatus> {
-    if let Err(error) = platform::ask_to_stop(child) {
-        tracing::warn!("could not ask Meka to stop, so it is killed: {error:#}");
-        child.kill()?;
-        return Ok(child.wait()?);
-    }
+/// Asks `child` to stop by closing `input`, its standard input, and kills it if it has not stopped
+/// within [`STOP_WAIT`].
+fn stop(child: &mut Child, input: Option<ChildStdin>) -> anyhow::Result<ExitStatus> {
+    drop(input);
     let asked = Instant::now();
     while asked.elapsed() < STOP_WAIT {
         if let Some(status) = child.try_wait()? {
@@ -460,152 +413,11 @@ pub(crate) fn free_address() -> anyhow::Result<SocketAddr> {
 pub(crate) fn check_binary(binary: &Path) -> anyhow::Result<()> {
     if !binary.is_file() {
         bail!(
-            "Meka is missing from the app: {} is not there. Install Meka Studio again.",
+            "Meka is missing from the app: {} is not there. Install the app again.",
             binary.display()
         );
     }
     Ok(())
-}
-
-#[cfg(unix)]
-mod platform {
-    use std::process::{Child, Command};
-
-    /// Starts Meka in a process group of its own, so a terminal's Ctrl+C reaches the app alone,
-    /// and on Linux has it sent SIGTERM if the app ends without stopping it.
-    pub(super) fn prepare(command: &mut Command) {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-        #[cfg(target_os = "linux")]
-        // SAFETY: `prctl` is async-signal-safe and touches nothing of the parent.
-        unsafe {
-            command.pre_exec(|| {
-                if libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM) == -1 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
-    }
-
-    pub(super) const fn adopt(_child: &Child) {}
-
-    /// Sends Meka SIGTERM, which it drains on.
-    pub(super) fn ask_to_stop(child: &Child) -> anyhow::Result<()> {
-        let pid = libc::pid_t::try_from(child.id())?;
-        // SAFETY: a plain signal to the process this app started and has not yet reaped.
-        if unsafe { libc::kill(pid, libc::SIGTERM) } == -1 {
-            return Err(std::io::Error::last_os_error().into());
-        }
-        Ok(())
-    }
-}
-
-#[cfg(windows)]
-mod platform {
-    use std::{
-        os::windows::{io::AsRawHandle, process::CommandExt},
-        process::{Child, Command},
-        sync::OnceLock,
-    };
-
-    use windows_sys::Win32::{
-        Foundation::{FALSE, HANDLE, TRUE},
-        System::{
-            Console::{
-                AttachConsole, CTRL_C_EVENT, FreeConsole, GenerateConsoleCtrlEvent,
-                SetConsoleCtrlHandler,
-            },
-            JobObjects::{
-                AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
-                JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-                SetInformationJobObject,
-            },
-            Threading::CREATE_NO_WINDOW,
-        },
-    };
-
-    /// Starts Meka with a console of its own, which no window shows: Ctrl+C reaches it there.
-    pub(super) fn prepare(command: &mut Command) {
-        command.creation_flags(CREATE_NO_WINDOW);
-    }
-
-    /// A job that kills Meka when the app's process ends, however it ends.
-    struct Job(HANDLE);
-
-    // SAFETY: a job handle may be used from any thread.
-    unsafe impl Send for Job {}
-    // SAFETY: as above; the handle is only read.
-    unsafe impl Sync for Job {}
-
-    fn job() -> Option<&'static Job> {
-        static JOB: OnceLock<Option<Job>> = OnceLock::new();
-        JOB.get_or_init(|| {
-            // SAFETY: a new unnamed job, and limits set on it alone.
-            unsafe {
-                let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
-                if job.is_null() {
-                    tracing::warn!(
-                        "could not make a job for Meka: {}",
-                        std::io::Error::last_os_error()
-                    );
-                    return None;
-                }
-                let mut limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
-                limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
-                let set = SetInformationJobObject(
-                    job,
-                    JobObjectExtendedLimitInformation,
-                    (&raw const limits).cast(),
-                    u32::try_from(std::mem::size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>())
-                        .unwrap_or(u32::MAX),
-                );
-                if set == FALSE {
-                    tracing::warn!(
-                        "could not limit Meka's job: {}",
-                        std::io::Error::last_os_error()
-                    );
-                    return None;
-                }
-                Some(Job(job))
-            }
-        })
-        .as_ref()
-    }
-
-    /// Puts Meka in the job that ends it with the app.
-    pub(super) fn adopt(child: &Child) {
-        let Some(job) = job() else {
-            return;
-        };
-        // SAFETY: the child's handle is open for as long as `child` lives.
-        if unsafe { AssignProcessToJobObject(job.0, child.as_raw_handle()) } == FALSE {
-            tracing::warn!(
-                "could not put Meka in its job: {}",
-                std::io::Error::last_os_error()
-            );
-        }
-    }
-
-    /// Sends Ctrl+C to Meka's console, which it drains on. The app has no console of its own to
-    /// keep, and ignores Ctrl+C itself from then on.
-    pub(super) fn ask_to_stop(child: &Child) -> anyhow::Result<()> {
-        // SAFETY: console calls on this process's own console state.
-        unsafe {
-            FreeConsole();
-            if AttachConsole(child.id()) == FALSE {
-                return Err(std::io::Error::last_os_error().into());
-            }
-            SetConsoleCtrlHandler(None, TRUE);
-            let sent = GenerateConsoleCtrlEvent(CTRL_C_EVENT, 0);
-            let error = std::io::Error::last_os_error();
-            FreeConsole();
-            if sent == FALSE {
-                return Err(error.into());
-            }
-        }
-        Ok(())
-    }
 }
 
 #[cfg(test)]
@@ -620,7 +432,6 @@ mod tests {
             data_dir: PathBuf::from("/app/meka-data"),
             address: "127.0.0.1:41000".parse().unwrap(),
             log: PathBuf::from("/app/logs/meka.log"),
-            pid_file: PathBuf::from("/app/meka.pid"),
             home: PathBuf::from("/home/me"),
         };
         let command = launch.command(
@@ -658,7 +469,12 @@ mod tests {
                 .any(|(name, _)| name == "PATH" || name == "HOME")
         );
         let args: Vec<_> = command.get_args().collect();
-        assert_eq!(args, ["serve", "--bind", "127.0.0.1:41000"]);
+        assert_eq!(args, [
+            "serve",
+            "--bind",
+            "127.0.0.1:41000",
+            "--exit-on-stdin-close"
+        ]);
     }
 
     #[test]
@@ -693,6 +509,33 @@ mod tests {
     }
 
     #[test]
+    fn the_entry_follows_the_token_file_and_another_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = dir.path().join("config.toml");
+        let token = dir.path().join("meka-token");
+        std::fs::write(
+            &config,
+            format!(
+                "[[serve.tokens]]\ntoken_file = \"/elsewhere/mine\"\nscopes = [\"sessions:r\"]\n\n\
+                 [[serve.tokens]]\ntoken_file = \"/moved/meka-config/meka-token\"\n\
+                 description = \"{ENTRY}\"\nscopes = [\"sessions:r\"]\n"
+            ),
+        )
+        .unwrap();
+        ensure_token_entry(dir.path(), &token).unwrap();
+        let parsed: toml_edit::DocumentMut =
+            std::fs::read_to_string(&config).unwrap().parse().unwrap();
+        let entries = parsed["serve"]["tokens"].as_array_of_tables().unwrap();
+        assert_eq!(entries.len(), 2);
+        let mine = entries.get(0).unwrap();
+        assert_eq!(mine["token_file"].as_str(), Some("/elsewhere/mine"));
+        assert_eq!(mine["scopes"].as_array().unwrap().len(), 1);
+        let ours = entries.get(1).unwrap();
+        assert_eq!(ours["token_file"].as_str(), token.to_str());
+        assert_eq!(ours["scopes"].as_array().unwrap().len(), SCOPES.len());
+    }
+
+    #[test]
     fn a_config_is_made_where_there_is_none_and_lost_scopes_are_given_back() {
         let dir = tempfile::tempdir().unwrap();
         let token = dir.path().join("meka-token");
@@ -712,14 +555,15 @@ mod tests {
         assert_eq!(entry["scopes"].as_array().unwrap().len(), SCOPES.len());
     }
 
-    /// A stand-in Meka: a script that serves nothing, notes the signal it stops on, and ends.
+    /// A stand-in Meka: a script that serves nothing, notes when its standard input closes, and
+    /// ends.
     #[cfg(unix)]
     fn stand_in(dir: &Path) -> Launch {
         use std::os::unix::fs::PermissionsExt;
         let binary = dir.join("meka");
         std::fs::write(
             &binary,
-            "#!/bin/sh\necho started >> \"$MEKA_DATA_DIR/runs\"\ntrap 'echo term >> \"$MEKA_DATA_DIR/runs\"; exit 0' TERM\nwhile :; do sleep 0.05; done\n",
+            "#!/bin/sh\necho started >> \"$MEKA_DATA_DIR/runs\"\ncat > /dev/null\necho closed >> \"$MEKA_DATA_DIR/runs\"\n",
         )
         .unwrap();
         std::fs::set_permissions(&binary, std::fs::Permissions::from_mode(0o755)).unwrap();
@@ -729,7 +573,6 @@ mod tests {
             data_dir: dir.to_path_buf(),
             address: free_address().unwrap(),
             log: dir.join("meka.log"),
-            pid_file: dir.join("meka.pid"),
             home: dir.to_path_buf(),
         }
     }
@@ -757,9 +600,9 @@ mod tests {
         wait_for(&runs, "started\n");
         assert!(meka.state().pid.is_some());
         meka.restart();
-        wait_for(&runs, "started\nterm\nstarted\n");
+        wait_for(&runs, "started\nclosed\nstarted\n");
         meka.stop();
-        wait_for(&runs, "started\nterm\nstarted\nterm\n");
+        wait_for(&runs, "started\nclosed\nstarted\nclosed\n");
         assert_eq!(meka.state().state, ProcessState::Stopped);
     }
 

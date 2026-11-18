@@ -7,16 +7,21 @@ use std::sync::{
     atomic::{AtomicU32, Ordering},
 };
 
+use meka_studio::desktop::{CloseAction, DesktopSettings, Host};
 use tauri::{
     AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry,
     menu::{Menu, MenuItem},
     tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     webview::{DownloadEvent, NewWindowResponse},
 };
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogResult};
 use tauri_plugin_opener::OpenerExt;
 use url::Url;
 
-use crate::shell::{Opens, Shell};
+use crate::{
+    files::WindowPlace,
+    shell::{Opens, Shell},
+};
 
 /// The main window's label.
 pub(crate) const MAIN: &str = "main";
@@ -64,8 +69,16 @@ fn builder<'a>(
     let navigating = (app.clone(), origin.clone());
     let opening = (app.clone(), origin.clone());
     let downloading = app.clone();
-    WebviewWindowBuilder::new(app, label, url)
-        .title("Meka Studio")
+    let builder = WebviewWindowBuilder::new(app, label, url);
+    let builder = match app
+        .try_state::<Arc<Shell>>()
+        .and_then(|shell| shell.paths.webview.clone())
+    {
+        Some(folder) => builder.data_directory(folder),
+        None => builder,
+    };
+    builder
+        .title(&app.package_info().name)
         // Files takes files dropped on it, which the webview hands over only without the app's
         // own handler.
         .disable_drag_drop_handler()
@@ -94,12 +107,14 @@ fn builder<'a>(
         })
 }
 
-/// Opens the main window, at the start page until [`enter`] opens Meka Studio at `origin`. Closing
-/// it hides it or quits, as the settings say.
+/// Opens the main window where it was before, at the start page until [`enter`] opens Meka Studio
+/// at `origin`. Closing it hides it or quits, as the settings say.
 pub(crate) fn open_main(app: &AppHandle, origin: &Url) -> tauri::Result<WebviewWindow> {
     let window = builder(app, MAIN, WebviewUrl::App("index.html".into()), origin)
         .inner_size(1280.0, 840.0)
-        .min_inner_size(400.0, 480.0);
+        .min_inner_size(400.0, 480.0)
+        // Shown once it is in its place.
+        .visible(false);
     let window = match TITLE_BAR {
         Some(title_bar) => window
             .initialization_script(format!("window.__MEKA_STUDIO_TITLE_BAR__ = '{title_bar}';")),
@@ -111,6 +126,7 @@ pub(crate) fn open_main(app: &AppHandle, origin: &Url) -> tauri::Result<WebviewW
         .hidden_title(true)
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
     let window = window.build()?;
+    crate::drops::tell_paths(&window, origin);
     if TITLE_BAR.is_some() {
         app.add_capability(
             TITLE_BAR_PERMISSIONS.iter().fold(
@@ -121,45 +137,187 @@ pub(crate) fn open_main(app: &AppHandle, origin: &Url) -> tauri::Result<WebviewW
             ),
         )?;
     }
-    if let Err(error) = fit_to_screen(&window) {
+    let shell = app.state::<Arc<Shell>>();
+    let kept = put_back(&window, shell.memory().window).unwrap_or_else(|error| {
+        tracing::warn!("could not put the window where it was: {error}");
+        None
+    });
+    if let Err(error) = fit_to_screen(&window, kept.is_none()) {
         tracing::warn!("could not fit the window to the screen: {error}");
     }
-    let closing = app.clone();
-    let hidden = window.clone();
-    window.on_window_event(move |event| {
-        if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+    // After fitting it, as sizing a window restores it.
+    if kept == Some(true) {
+        window.maximize()?;
+    }
+    window.show()?;
+    shell.note_place(&window, false);
+    let app = app.clone();
+    let main = window.clone();
+    window.on_window_event(move |event| match event {
+        tauri::WindowEvent::Moved(_) => app.state::<Arc<Shell>>().note_place(&main, true),
+        tauri::WindowEvent::Resized(_) => app.state::<Arc<Shell>>().note_place(&main, false),
+        tauri::WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
-            let shell = closing.state::<Arc<Shell>>();
-            match shell.settings().close {
-                meka_studio::desktop::CloseAction::Tray => {
-                    if let Err(error) = hidden.hide() {
-                        tracing::warn!("could not hide the window: {error}");
-                    }
-                }
-                meka_studio::desktop::CloseAction::Quit => crate::quit(&closing),
+            match app.state::<Arc<Shell>>().settings().close {
+                CloseAction::Ask => ask_on_close(&app, &main),
+                CloseAction::Tray => hide_main(&app, &main),
+                CloseAction::Quit => crate::quit(&app),
             }
         }
+        _ => {}
     });
     Ok(window)
 }
 
-/// Shrinks `window` to fit the screen it opens on, and centers it there, if it reaches past the
-/// screen's work area: the default size on a small or scaled screen, or a size kept from a larger
-/// one.
-fn fit_to_screen(window: &WebviewWindow) -> tauri::Result<()> {
+/// Hides the main window `main` to the tray, keeping its place.
+fn hide_main(app: &AppHandle, main: &WebviewWindow) {
+    app.state::<Arc<Shell>>().keep_place(main);
+    if let Err(error) = main.hide() {
+        tracing::warn!("could not hide the window: {error}");
+    }
+}
+
+/// Asks whether closing the main window `main` keeps the app running in the tray or quits, as the
+/// settings leave it to the window's first close, keeps the answer in them, and does it. Dismissed,
+/// the question leaves the window open.
+fn ask_on_close(app: &AppHandle, main: &WebviewWindow) {
+    const KEEP: &str = "Keep running";
+    const QUIT: &str = "Quit";
+    let answering = (app.clone(), main.clone());
+    app.dialog()
+        .message(
+            "Keep Meka running in the tray when the window closes? Quitting stops Meka and its \
+             turns. Settings → General changes this.",
+        )
+        .title(app.package_info().name.clone())
+        .parent(main)
+        .buttons(MessageDialogButtons::YesNoCancelCustom(
+            KEEP.to_owned(),
+            QUIT.to_owned(),
+            "Cancel".to_owned(),
+        ))
+        .show_with_result(move |answer| {
+            let (app, main) = answering;
+            let close = match answer {
+                MessageDialogResult::Custom(label) if label == KEEP => CloseAction::Tray,
+                MessageDialogResult::Custom(label) if label == QUIT => CloseAction::Quit,
+                _ => return,
+            };
+            let shell = app.state::<Arc<Shell>>();
+            let settings = DesktopSettings {
+                close,
+                ..shell.settings()
+            };
+            if let Err(error) = shell.save_settings(settings) {
+                tracing::warn!("could not keep what closing the window does: {error:#}");
+            }
+            match close {
+                CloseAction::Quit => crate::quit(&app),
+                _ => hide_main(&app, &main),
+            }
+        });
+}
+
+/// Puts `window` back in its place `kept`, if some of that is on a screen still, and returns
+/// whether it was maximized there; otherwise, `None`, it opens where the system puts a new window.
+fn put_back(window: &WebviewWindow, kept: Option<WindowPlace>) -> tauri::Result<Option<bool>> {
+    let Some(kept) = kept else {
+        return Ok(None);
+    };
+    let areas: Vec<_> = window
+        .available_monitors()?
+        .iter()
+        .map(|monitor| *monitor.work_area())
+        .collect();
+    if !on_screen(&kept, &areas) {
+        return Ok(None);
+    }
+    window.set_position(tauri::PhysicalPosition::new(kept.x, kept.y))?;
+    set_outer_size(window, tauri::PhysicalSize::new(kept.width, kept.height))?;
+    Ok(Some(kept.maximized))
+}
+
+/// Sizes `window` by its outer edges, as its place is kept: the system's title bar comes and goes
+/// between the start page and Meka Studio, and a window is sized by what is inside its frame.
+fn set_outer_size(window: &WebviewWindow, size: tauri::PhysicalSize<u32>) -> tauri::Result<()> {
+    let outer = window.outer_size()?;
+    let inner = window.inner_size()?;
+    window.set_size(tauri::PhysicalSize::new(
+        size.width
+            .saturating_sub(outer.width.saturating_sub(inner.width)),
+        size.height
+            .saturating_sub(outer.height.saturating_sub(inner.height)),
+    ))
+}
+
+/// Whether enough of a window at `place` lies on one of the screens' work `areas` to take hold of
+/// and move.
+fn on_screen(place: &WindowPlace, areas: &[tauri::PhysicalRect<i32, u32>]) -> bool {
+    /// How much of the window must be on one screen, across and down.
+    const SHOWN: (i64, i64) = (100, 50);
+    let (left, top) = (i64::from(place.x), i64::from(place.y));
+    let (right, bottom) = (left + i64::from(place.width), top + i64::from(place.height));
+    areas.iter().any(|area| {
+        let (area_left, area_top) = (i64::from(area.position.x), i64::from(area.position.y));
+        let across = right.min(area_left + i64::from(area.size.width)) - left.max(area_left);
+        let down = bottom.min(area_top + i64::from(area.size.height)) - top.max(area_top);
+        across >= SHOWN.0 && down >= SHOWN.1
+    })
+}
+
+/// Where `window` is now, unless it is maximized or minimized, which leaves its place as it was.
+pub(crate) fn normal_place(window: &WebviewWindow) -> tauri::Result<Option<WindowPlace>> {
+    if window.is_maximized()? || window.is_minimized()? {
+        return Ok(None);
+    }
+    let position = window.outer_position()?;
+    let size = window.outer_size()?;
+    Ok((size.width > 0 && size.height > 0).then_some(WindowPlace {
+        x: position.x,
+        y: position.y,
+        width: size.width,
+        height: size.height,
+        maximized: false,
+    }))
+}
+
+/// Centers `window` on the screen it opens on if it reaches past the screen's work area, shrinking
+/// it first where it is larger: the default size on a small or scaled screen, or a size kept from
+/// a larger one. A window the system `placed` is centered where it reaches past the area at all, as
+/// Windows may put a new window's foot under the taskbar; a place kept is the person's, and may
+/// hang past an edge.
+fn fit_to_screen(window: &WebviewWindow, placed: bool) -> tauri::Result<()> {
     let Some(monitor) = window.current_monitor()? else {
         return Ok(());
     };
-    let area = monitor.work_area().size;
+    let area = *monitor.work_area();
     let size = window.outer_size()?;
-    if size.width <= area.width && size.height <= area.height {
+    if size.width > area.size.width || size.height > area.size.height {
+        set_outer_size(
+            window,
+            tauri::PhysicalSize::new(
+                size.width.min(area.size.width / 10 * 9),
+                size.height.min(area.size.height / 10 * 9),
+            ),
+        )?;
+    } else if !placed || within(window.outer_position()?, size, &area) {
         return Ok(());
     }
-    window.set_size(tauri::PhysicalSize::new(
-        size.width.min(area.width / 10 * 9),
-        size.height.min(area.height / 10 * 9),
-    ))?;
     window.center()
+}
+
+/// Whether a window at `position` of `size` lies wholly in the work `area`.
+fn within(
+    position: tauri::PhysicalPosition<i32>,
+    size: tauri::PhysicalSize<u32>,
+    area: &tauri::PhysicalRect<i32, u32>,
+) -> bool {
+    let (left, top) = (i64::from(position.x), i64::from(position.y));
+    let (area_left, area_top) = (i64::from(area.position.x), i64::from(area.position.y));
+    left >= area_left
+        && top >= area_top
+        && left + i64::from(size.width) <= area_left + i64::from(area.size.width)
+        && top + i64::from(size.height) <= area_top + i64::from(area.size.height)
 }
 
 /// Opens a page of Meka Studio asked for in a new window, such as a PDF, in a window of its own.
@@ -280,13 +438,54 @@ pub(crate) fn show_error(app: &AppHandle, message: &str) {
     });
 }
 
+/// Says why the app could not start in a message box, and ends. A window opened only to say so
+/// would keep its webview's data in the user's profile, which a portable copy must not touch.
+#[cfg(windows)]
+pub(crate) fn fail_to_start(app: &AppHandle, message: &str) {
+    tracing::error!("{message}");
+    crate::system::message_box(&app.package_info().name, message);
+    std::process::exit(1);
+}
+
+/// Says why the app could not start on the start page: in the main window if it is open, or else
+/// in a window whose closing ends the app.
+#[cfg(not(windows))]
+pub(crate) fn fail_to_start(app: &AppHandle, message: &str) {
+    tracing::error!("{message}");
+    eprintln!("{message}");
+    if app.get_webview_window(MAIN).is_some() {
+        show_error(app, message);
+        return;
+    }
+    let window = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("index.html".into()))
+        .title(&app.package_info().name)
+        .inner_size(640.0, 400.0);
+    // Where the app's windows keep their data, rather than in a folder Tauri would make for it.
+    #[cfg(not(target_os = "macos"))]
+    let window = match crate::files::installed_webview(app) {
+        Ok(folder) => window.data_directory(folder),
+        Err(error) => {
+            eprintln!("could not find the app's folders: {error}");
+            window
+        }
+    };
+    match window.build() {
+        Ok(_) => show_error(app, message),
+        Err(error) => {
+            eprintln!("could not open a window to say so: {error}");
+            std::process::exit(1);
+        }
+    }
+}
+
 /// The tray icon: a click shows the window, and its menu shows it or quits.
 pub(crate) fn tray(app: &AppHandle) -> tauri::Result<()> {
-    let show = MenuItem::with_id(app, "show", "Show Meka Studio", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Quit Meka Studio", true, None::<&str>)?;
+    let name = &app.package_info().name;
+    let show = MenuItem::with_id(app, "show", format!("Show {name}"), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", format!("Quit {name}"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
-        .tooltip("Meka Studio")
+        .tooltip(name)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id.as_ref() {
@@ -329,5 +528,50 @@ mod tests {
         assert!(is_start_page(&at("tauri://localhost/index.html")));
         assert!(is_start_page(&at("http://tauri.localhost/index.html")));
         assert!(!is_start_page(&at("https://example.com/")));
+    }
+
+    #[test]
+    fn a_window_goes_back_only_to_a_place_it_can_be_moved_from() {
+        let area = |x, y, width, height| tauri::PhysicalRect {
+            position: tauri::PhysicalPosition::new(x, y),
+            size: tauri::PhysicalSize::new(width, height),
+        };
+        let place = |x, y| WindowPlace {
+            x,
+            y,
+            width: 1280,
+            height: 840,
+            maximized: false,
+        };
+        let screens = [area(0, 0, 1920, 1040), area(-1600, 200, 1600, 860)];
+        assert!(on_screen(&place(100, 100), &screens));
+        assert!(
+            on_screen(&place(-1500, 300), &screens),
+            "on the left screen"
+        );
+        assert!(on_screen(&place(1820, 990), &screens), "100 by 50 shown");
+        assert!(!on_screen(&place(1821, 100), &screens), "99 across shown");
+        assert!(!on_screen(&place(100, 991), &screens), "49 down shown");
+        assert!(
+            !on_screen(&place(-3000, 300), &screens),
+            "a screen since gone"
+        );
+        assert!(!on_screen(&place(100, 100), &[]));
+    }
+
+    #[test]
+    fn a_window_reaching_under_the_taskbar_is_not_within_the_work_area() {
+        let area = tauri::PhysicalRect {
+            position: tauri::PhysicalPosition::new(-1920, 0),
+            size: tauri::PhysicalSize::new(1920, 1032),
+        };
+        let size = tauri::PhysicalSize::new(1280, 840);
+        let at = |x, y| within(tauri::PhysicalPosition::new(x, y), size, &area);
+        assert!(at(-1920, 0), "in the corner");
+        assert!(at(-1280, 192), "against the far corner");
+        assert!(!at(-1920, 193), "its foot under the taskbar");
+        assert!(!at(-1279, 100), "past the right edge");
+        assert!(!at(-1921, 100), "past the left edge");
+        assert!(!at(-1920, -1), "above the top");
     }
 }

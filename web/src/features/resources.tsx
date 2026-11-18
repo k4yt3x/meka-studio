@@ -159,7 +159,7 @@ export function ResourcesPage({ kind }: { kind: Kind }) {
         )}
       </div>
       <ErrorNotice error={kind === 'memory' ? memories.error : skills.error} />
-      {!list && (memories.isFetching || skills.isFetching) && <Loading />}
+      {!list && (memories.isFetching || skills.isFetching) && <Loading fill />}
       <div className="resource-grid">
         {rows?.map((item) => (
           <button
@@ -205,7 +205,7 @@ export function ResourcesPage({ kind }: { kind: Kind }) {
         />
       )}
       {!canRead && (
-        <p className="muted">
+        <p className="muted small">
           {kind === 'skills'
             ? 'Reading skill bodies requires skills:r.'
             : 'Reading memories requires memory:r.'}
@@ -219,7 +219,7 @@ export function ResourcesPage({ kind }: { kind: Kind }) {
         title={selected?.name ?? title}
         wide
       >
-        {detail.isPending ? <Loading /> : <ErrorNotice error={detail.error} />}{' '}
+        {detail.isPending ? <Loading fill /> : <ErrorNotice error={detail.error} />}{' '}
         {detail.data ? (
           <ResourceEditor
             key={`${kind}/${selected?.project}/${selected?.name}`}
@@ -535,7 +535,11 @@ function ResourceEditor({
         {!canWrite && <span className="muted small">Read only. Editing requires {kind}:w.</span>}
         {canWrite && (
           <Button type="submit" disabled={action.busy}>
-            {action.busy ? 'Saving…' : 'Save changes'}
+            {action.busy
+              ? 'Saving…'
+              : initial
+                ? 'Save'
+                : `Add ${kind === 'memory' ? 'memory' : 'skill'}`}
           </Button>
         )}
       </div>

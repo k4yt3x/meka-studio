@@ -310,7 +310,7 @@ function PasswordPanel() {
           </p>
         )}
         <div className="actions">
-          <Button type="submit" variant="secondary" disabled={action.busy}>
+          <Button type="submit" disabled={action.busy}>
             Change password
           </Button>
         </div>

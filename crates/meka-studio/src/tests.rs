@@ -1057,11 +1057,12 @@ async fn passkey_challenges_are_limited_per_network() {
     assert!(refused.headers().contains_key(header::RETRY_AFTER));
 }
 
-/// A stand-in desktop app: its settings, and the notifications it was asked to show.
+/// A stand-in desktop app: its settings, and the notifications and folders it was asked to show.
 #[derive(Default)]
 struct StandInHost {
     settings: Mutex<crate::desktop::DesktopSettings>,
     shown: Mutex<Vec<crate::desktop::Notification>>,
+    opened: Mutex<Vec<crate::desktop::Folder>>,
 }
 
 impl crate::desktop::Host for StandInHost {
@@ -1079,6 +1080,7 @@ impl crate::desktop::Host for StandInHost {
             },
             update: None,
             logs: "/logs".to_owned(),
+            portable: false,
         }
     }
 
@@ -1089,7 +1091,8 @@ impl crate::desktop::Host for StandInHost {
 
     fn restart_meka(&self) {}
 
-    fn open_logs(&self) -> anyhow::Result<()> {
+    fn open_folder(&self, folder: crate::desktop::Folder) -> anyhow::Result<()> {
+        self.opened.lock().unwrap().push(folder);
         Ok(())
     }
 }
@@ -1216,6 +1219,24 @@ async fn the_desktop_window_is_signed_in_and_has_nothing_of_signing_in_to_manage
     .await;
     assert_eq!(tested.status(), StatusCode::NO_CONTENT);
     assert_eq!(host.shown.lock().unwrap().len(), 1);
+    for folder in ["data", "home", "..%2F..%2Fetc"] {
+        send(
+            &router,
+            from_the_window(
+                "POST",
+                &format!("/api/desktop/folders/{folder}/open"),
+                &cookie,
+            )
+            .body(Body::empty())
+            .unwrap(),
+        )
+        .await;
+    }
+    assert_eq!(
+        *host.opened.lock().unwrap(),
+        [crate::desktop::Folder::Data],
+        "only the app's own folders open, by name"
+    );
 }
 
 #[tokio::test]

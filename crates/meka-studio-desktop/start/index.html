@@ -3,14 +3,19 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Meka Studio</title>
+    <title>Meka Studio Desktop</title>
     <link rel="stylesheet" href="start.css" />
     <script src="start.js" defer></script>
   </head>
   <body>
     <main>
-      <h1>Meka Studio</h1>
-      <p id="status" role="status">Starting Meka…</p>
+      <h1>Meka Studio Desktop</h1>
+      <p id="status" role="status">
+        <svg class="spinner" viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+        </svg>
+        <span id="message">Starting Meka…</span>
+      </p>
     </main>
   </body>
 </html>

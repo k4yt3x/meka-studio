@@ -35,7 +35,7 @@ const MAX_SAVE_BYTES: usize = 3 * crate::files::MAX_EDIT_BYTES as usize;
         description = "The web interface for Meka, served from the Meka host.",
         license(name = "AGPL-3.0-or-later")
     ),
-    components(schemas(crate::error::Problem))
+    components(schemas(crate::error::Problem, crate::desktop::Folder))
 )]
 struct ApiDoc;
 
@@ -96,7 +96,7 @@ pub(crate) fn signed_in() -> OpenApiRouter<App> {
         .routes(routes!(desktop::state))
         .routes(routes!(desktop::save_settings))
         .routes(routes!(desktop::restart_meka))
-        .routes(routes!(desktop::open_logs))
+        .routes(routes!(desktop::open_folder))
         .routes(routes!(desktop::test_notification))
         // Saving text takes a larger body than the rest; within, its limit is what holds.
         .merge(

@@ -5,14 +5,18 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod drops;
 mod files;
 mod meka;
 mod shell;
+#[cfg(windows)]
+mod system;
 mod update;
 mod window;
 
 use std::{
     net::TcpListener,
+    path::{Path, PathBuf},
     sync::{Arc, atomic::Ordering},
     time::Duration,
 };
@@ -21,7 +25,6 @@ use meka_studio::desktop::{Options, ProcessState, Server};
 use tauri::{Manager, RunEvent};
 use tauri_plugin_notification::NotificationExt;
 use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_window_state::{AppHandleExt, StateFlags};
 use tracing_subscriber::EnvFilter;
 
 use crate::{
@@ -38,35 +41,33 @@ const MEKA_START_WAIT: Duration = Duration::from_secs(30);
 /// ports of their own, so the port is likely free at the next start too.
 const STUDIO_PORTS: std::ops::Range<u16> = 20_000..30_000;
 
-/// What the window keeps of itself from one start to the next: everything but whether it is
-/// shown and whether the system draws its title bar, which the app decides.
-fn kept_state() -> StateFlags {
-    StateFlags::all() - StateFlags::VISIBLE - StateFlags::DECORATIONS
-}
+/// The argument that has a running app quit, and is how its installer quits it before replacing
+/// or removing it. Started with it while no copy runs, the app ends at once.
+const QUIT: &str = "--quit";
 
 fn main() {
     meka_studio::desktop::prepare();
+    let context = tauri::generate_context!();
+    // The app's name wherever the system shows it, `productName` in tauri.conf.json.
+    let name = context.package_info().name.clone();
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(
-            |app, _arguments, _folder| {
-                window::show_main(app);
-            },
-        ))
+        .plugin(tauri_plugin_single_instance::init(started_again))
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
-        .plugin(
-            tauri_plugin_window_state::Builder::new()
-                .with_state_flags(kept_state())
-                .with_filter(|label| label == window::MAIN)
-                .build(),
-        )
-        .setup(|app| Ok(setup(app.handle())?))
-        .build(tauri::generate_context!());
+        .setup(|app| {
+            if let Err(error) = setup(app.handle()) {
+                let name = &app.package_info().name;
+                window::fail_to_start(app.handle(), &format!("{name} could not start: {error:#}"));
+            }
+            Ok(())
+        })
+        .build(context);
     let app = match app {
         Ok(app) => app,
         Err(error) => {
-            tracing::error!("Meka Studio could not start: {error}");
-            eprintln!("Meka Studio could not start: {error}");
+            tracing::error!("{name} could not start: {error}");
+            eprintln!("{name} could not start: {error}");
             std::process::exit(1);
         }
     };
@@ -88,13 +89,15 @@ pub(crate) fn quit(app: &tauri::AppHandle) {
         .try_state::<Arc<Shell>>()
         .map(|shell| Arc::clone(&shell))
     else {
+        // Only the start page's window is open, saying why the app could not start.
+        app.exit(0);
         return;
     };
     if shell.quitting.swap(true, Ordering::SeqCst) {
         return;
     }
-    if let Err(error) = app.save_window_state(kept_state()) {
-        tracing::warn!("could not keep the window's size and place: {error}");
+    if let Some(window) = app.get_webview_window(window::MAIN) {
+        shell.keep_place(&window);
     }
     for window in app.webview_windows().values() {
         if let Err(error) = window.hide() {
@@ -104,6 +107,8 @@ pub(crate) fn quit(app: &tauri::AppHandle) {
     let app = app.clone();
     std::thread::spawn(move || {
         shell.shut_down();
+        #[cfg(windows)]
+        shell.name_notifications(false);
         // Ended here rather than by asking the event loop: on Windows a loop with every window
         // hidden waits for one more message before it sees the request, which may never come.
         app.cleanup_before_exit();
@@ -111,11 +116,75 @@ pub(crate) fn quit(app: &tauri::AppHandle) {
     });
 }
 
+/// What starting the app again, with `arguments` in `folder`, asks of the running app: to quit,
+/// with [`QUIT`], or else to show its window, saying where it runs from if the start was of
+/// another copy, which then ends.
+fn started_again(app: &tauri::AppHandle, arguments: Vec<String>, folder: String) {
+    if arguments.iter().skip(1).any(|argument| argument == QUIT) {
+        quit(app);
+        return;
+    }
+    window::show_main(app);
+    let Some(started) = started_program(&arguments, Path::new(&folder)) else {
+        return;
+    };
+    let Ok(ours) = std::env::current_exe() else {
+        return;
+    };
+    // Unless both programs are found, which copy started is not known, and nothing is said.
+    match (
+        std::fs::canonicalize(&started),
+        std::fs::canonicalize(&ours),
+    ) {
+        (Ok(started), Ok(canonical)) if started != canonical => {}
+        _ => return,
+    }
+    if let Some(shell) = app.try_state::<Arc<Shell>>() {
+        shell.show(
+            &format!("{} is already running", app.package_info().name),
+            &format!("It runs from {}.", ours.parent().unwrap_or(&ours).display()),
+            None,
+        );
+    }
+}
+
+/// The program a start of the app with `arguments` in `folder` ran: its first argument, as the
+/// system passed it. A bare name was found on the `PATH`, which is not passed on, so it tells
+/// nothing.
+fn started_program(arguments: &[String], folder: &Path) -> Option<PathBuf> {
+    let program = Path::new(arguments.first()?);
+    if program
+        .parent()
+        .is_none_or(|parent| parent.as_os_str().is_empty())
+    {
+        return None;
+    }
+    let mut program = folder.join(program);
+    if cfg!(windows) && program.extension().is_none() {
+        program.set_extension("exe");
+    }
+    Some(program)
+}
+
 /// Opens the window and the tray icon, then starts Meka and Meka Studio behind them.
 fn setup(app: &tauri::AppHandle) -> anyhow::Result<()> {
+    if std::env::args_os().skip(1).any(|argument| argument == QUIT) {
+        std::process::exit(0);
+    }
     let paths = Paths::of(app)?;
-    paths.make()?;
-    logging(&paths)?;
+    if let Err(error) = paths.make().and_then(|()| logging(&paths)) {
+        return Err(match &paths.portable {
+            Some(_) => anyhow::anyhow!(
+                "{error:#}. A portable copy keeps its data beside it; move it to a folder you can \
+                 write to."
+            ),
+            None => error,
+        });
+    }
+    #[cfg(windows)]
+    if paths.portable.is_none() {
+        system::hold_running_mutex();
+    }
     let shell = Arc::new(Shell::new(app.clone(), paths));
     app.manage(Arc::clone(&shell));
     let listener = studio_listener(&shell)?;
@@ -144,14 +213,19 @@ fn setup(app: &tauri::AppHandle) -> anyhow::Result<()> {
             tracing::warn!("could not show the download in its folder: {error}");
         }
     })?;
+    #[cfg(windows)]
+    if shell.settings().notifications {
+        shell.name_notifications(true);
+    }
     let starting = app.clone();
     tauri::async_runtime::spawn(async move {
         if let Err(error) = start(&starting, &shell, listener).await {
-            tracing::error!("Meka Studio could not start: {error:#}");
-            window::show_error(
-                &starting,
-                &format!("Meka Studio could not start: {error:#}"),
+            let message = format!(
+                "{} could not start: {error:#}",
+                starting.package_info().name
             );
+            tracing::error!("{message}");
+            window::show_error(&starting, &message);
         }
     });
     Ok(())
@@ -173,15 +247,8 @@ async fn start(
         data_dir: paths.meka_data.clone(),
         address: meka::free_address()?,
         log: paths.logs.join("meka.log"),
-        pid_file: paths.meka_pid.clone(),
         home: app.path().home_dir()?,
     };
-    #[cfg(target_os = "macos")]
-    tokio::task::spawn_blocking({
-        let launch = launch.clone();
-        move || meka::stop_leftover(&launch)
-    })
-    .await?;
     let meka = Arc::new(Meka::start(launch.clone())?);
     shell.keep_meka(Arc::clone(&meka));
     // The server starts once Meka answers, so its first look at Meka finds it there.
@@ -272,4 +339,32 @@ fn logging(paths: &Paths) -> anyhow::Result<()> {
             .try_init()
     };
     set.map_err(|error| anyhow::anyhow!("could not start logging: {error}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_start_names_its_program_unless_it_was_found_on_the_path() {
+        let folder = Path::new("/home/user/Downloads");
+        let started = |first: &str| started_program(&[first.to_owned(), QUIT.to_owned()], folder);
+        let program = |path: &str| {
+            let mut path = PathBuf::from(path);
+            if cfg!(windows) {
+                path.set_extension("exe");
+            }
+            Some(path)
+        };
+        assert_eq!(
+            started("/opt/meka-studio/meka-studio-desktop"),
+            program("/opt/meka-studio/meka-studio-desktop")
+        );
+        assert_eq!(
+            started("copy/meka-studio-desktop"),
+            program("/home/user/Downloads/copy/meka-studio-desktop")
+        );
+        assert_eq!(started("meka-studio-desktop"), None);
+        assert_eq!(started_program(&[], folder), None);
+    }
 }

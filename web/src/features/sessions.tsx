@@ -142,18 +142,23 @@ export function SessionsPage({
   // Both read again while failing, as what was open before a reload waits for them.
   const status = useGateway<Gateway['StatusView']>('/api/status', undefined, true, whileFailing);
   const terminalEnabled = status.data?.features.terminal ?? false;
-  // Files is there for a session, and for a new conversation's folder; the rest, for a session.
-  // A page has none.
+  // Files and terminals are there for a session, and for a new conversation's folder; the other
+  // panels, for a session. A page has none.
+  const hasWorkspace = !page && (Boolean(selected?.session) || !id);
   const panels = page
     ? []
     : PANELS.filter((panel) =>
         panel === 'files'
-          ? Boolean(selected?.session) || !id
+          ? hasWorkspace
           : Boolean(selected?.session) && (panel !== 'schedules' || canSchedule),
       );
-  const terminalAvailable = Boolean(selected?.session) && terminalEnabled;
+  const terminalAvailable = hasWorkspace && terminalEnabled;
+  // A new conversation with no folder chosen works in Meka's default one; the home folder stands in
+  // where Meka does not say which.
   const filesStart =
-    (id ? selected?.session?.working_directory : newConversation.settings.workingDirectory) || '~';
+    (id ? selected?.session?.working_directory : newConversation.settings.workingDirectory) ||
+    state.info?.default_working_directory ||
+    '~';
   // Each session's Files and open files are its own; a new conversation's follow its folder.
   const filesPlace = selected?.id ?? `new:${filesStart}`;
   const editor = useEditorStore();
@@ -272,18 +277,21 @@ export function SessionsPage({
     }
   }
   const startingTerminal = useRef(false);
-  /** Starts a terminal in `cwd`, the working directory unless given, in a tab of its own. */
+  /**
+   * Starts a terminal in `cwd`, the working directory unless given, in a tab of its own: the
+   * session's, or for a new conversation, one of no session's, in the folder chosen for it.
+   */
   function startTerminal(cwd?: string) {
     const session = selected?.session;
-    if (!session || startingTerminal.current) return;
+    if (!terminalAvailable || startingTerminal.current) return;
     const place = filesPlace;
-    const folder = cwd ?? session.working_directory;
+    const folder = cwd ?? (session ? session.working_directory : filesStart);
     startingTerminal.current = true;
     showEditor();
     void action.run(async () => {
       try {
         const view = await runtime.gateway.send<Gateway['TerminalView']>('POST', '/api/terminals', {
-          session: session.id,
+          ...(session ? { session: session.id } : {}),
           ...(folder ? { cwd: folder } : {}),
           cols: 80,
           rows: 24,
@@ -402,25 +410,35 @@ export function SessionsPage({
     selected?.session ? selected.id : undefined,
     selectedRunning,
   );
+  // A new conversation's terminals are those of no session, picked from the list of all.
   const shells = useGateway<Gateway['TerminalView'][]>(
     '/api/terminals',
-    { session: id ?? '' },
+    id ? { session: id } : undefined,
     terminalAvailable,
     whileFailing,
   );
   const sessionId = selected?.session ? selected.id : undefined;
-  // The session's terminals still running, once known: none where Meka Studio runs none. Not known
+  // The terminals still running here, once known: none where Meka Studio runs none. Not known
   // while either list fails, which a later read may settle.
-  const live =
-    !sessionId || !status.data ? undefined : !terminalEnabled ? NO_TERMINALS : shells.data;
-  // What the session had open before a reload comes back once they are known, and each of them
-  // has a tab, as one started elsewhere. A new conversation's are not kept: they stay behind as it
-  // becomes a session.
+  const live = useMemo(
+    () =>
+      !hasWorkspace || !status.data
+        ? undefined
+        : !terminalEnabled
+          ? NO_TERMINALS
+          : sessionId
+            ? shells.data
+            : shells.data?.filter((view) => !view.session),
+    [hasWorkspace, status.data, terminalEnabled, sessionId, shells.data],
+  );
+  // What the session had open before a reload comes back once they are known, and each terminal
+  // has a tab, as one started elsewhere. A new conversation's files are not kept: they stay behind
+  // as it becomes a session. Its terminals stay with it, in whichever folder it shows.
   useEffect(() => {
-    if (!sessionId || !live) return;
-    editor.restore(sessionId, live);
-    editor.addTerminals(sessionId, live);
-  }, [editor, sessionId, live]);
+    if (!live) return;
+    if (sessionId) editor.restore(sessionId, live);
+    editor.addTerminals(filesPlace, live);
+  }, [editor, sessionId, filesPlace, live]);
   const terminalShown = terminalActive && (desktop ? editorShown : mobileEditor);
   useShortcut('toggleTerminal', toggleTerminal, terminalAvailable);
   useShortcut('newTerminal', () => startTerminal(), terminalAvailable);
@@ -673,7 +691,7 @@ export function SessionsPage({
                 </header>
               }
             >
-              <ErrorNotice error={action.error} />
+              <ErrorNotice error={action.error} onDismiss={action.reset} />
               <div id="session-title-error">
                 <ErrorNotice
                   error={headingError?.key === headingKey ? headingError.error : undefined}
@@ -696,7 +714,7 @@ export function SessionsPage({
                       Retry opening session
                     </Button>
                   ) : (
-                    <Loading label="Opening session…" />
+                    <Loading label="Opening session…" fill />
                   )}
                   <ErrorNotice error={selected?.error} />
                 </div>
@@ -1142,7 +1160,7 @@ function SessionTools({ sessionId }: { sessionId: string }) {
   return (
     <div>
       <ErrorNotice error={tools.error} />
-      {tools.isPending && <Loading label="Loading available tools…" />}
+      {tools.isPending && <Loading label="Loading available tools…" fill />}
       {tools.data?.tools.length === 0 && <Empty title="No tool catalog available" />}
       {tools.data?.tools.map((tool) => (
         <article className="tool-catalog-entry" key={tool.name}>
@@ -1236,7 +1254,7 @@ function SessionDetails({ session, tab }: { session: Schema['SessionResponse']; 
           {context.data ? (
             <SessionContext context={context.data} session={session} />
           ) : context.isPending ? (
-            <Loading />
+            <Loading fill />
           ) : null}
         </>
       )}
@@ -1292,13 +1310,7 @@ function WorkspacePage({ page }: { page: SidebarPage }) {
           <span>Sessions</span>
         </Button>
       </header>
-      <Suspense
-        fallback={
-          <div className="page">
-            <Loading />
-          </div>
-        }
-      >
+      <Suspense fallback={<Loading fill />}>
         {page === 'projects' ? (
           <ProjectsPage />
         ) : page === 'schedules' ? (

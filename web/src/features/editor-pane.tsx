@@ -714,7 +714,7 @@ function EditorBody({
     return (
       <>
         {bar}
-        <Loading label={`Opening ${file.name}…`} />
+        <Loading label={`Opening ${file.name}…`} fill />
       </>
     );
   if (file.state === 'failed')

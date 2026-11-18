@@ -44,8 +44,8 @@ export function SchedulesPage({ sessionId }: { sessionId?: string }) {
         </header>
       )}
       <ErrorNotice error={query.error} />
-      {query.isFetching && !query.data && canRead && <Loading />}
-      {!canRead && <p className="muted">Listing schedules requires schedule:r.</p>}
+      {query.isFetching && !query.data && canRead && <Loading fill />}
+      {!canRead && <p className="muted small">Listing schedules requires schedule:r.</p>}
       <div className="stack">
         {query.data?.schedules.map((schedule) => (
           <article className="panel schedule-card" key={schedule.id}>
@@ -104,7 +104,7 @@ export function SchedulesPage({ sessionId }: { sessionId?: string }) {
           </article>
         ))}
       </div>
-      {query.data?.schedules.length === 0 && <Empty title="Nothing scheduled" />}
+      {query.data?.schedules.length === 0 && <Empty title="No schedules yet" />}
       {sessionId && <div className="schedule-actions">{newSchedule}</div>}
       <Dialog open={create} onOpenChange={setCreate} title="New schedule" wide>
         {create && (
@@ -281,9 +281,11 @@ function ScheduleForm({
         </div>
       </details>
       <ErrorNotice error={action.error} />
-      <Button type="submit" disabled={action.busy}>
-        {action.busy ? 'Creating…' : 'Create schedule'}
-      </Button>
+      <div className="actions">
+        <Button type="submit" disabled={action.busy}>
+          {action.busy ? 'Adding…' : 'Add schedule'}
+        </Button>
+      </div>
     </form>
   );
 }

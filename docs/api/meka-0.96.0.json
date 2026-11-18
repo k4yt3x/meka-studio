@@ -4,7 +4,7 @@
     "title": "Meka HTTP API",
     "description": "Service-to-service API for driving Meka agent turns programmatically. Mirrors the wire format described in the HTTP API docs. A field that has no value is omitted from every response and event, never sent as `null`.",
     "license": { "name": "AGPL-3.0-or-later" },
-    "version": "0.95.0"
+    "version": "0.96.0"
   },
   "paths": {
     "/v1/accounts": {
@@ -5356,6 +5356,10 @@
         "required": ["version", "default_permission", "enabled_permissions", "scopes"],
         "properties": {
           "default_permission": { "type": "string" },
+          "default_working_directory": {
+            "type": ["string", "null"],
+            "description": "The directory a session works in when `POST /v1/sessions` names none: the server process's\nown. Stated to a token that holds a `sessions` scope, as a session's own directory is;\nomitted for any other token, and when the server cannot determine it or its name is not\nUTF-8."
+          },
           "enabled_permissions": { "type": "array", "items": { "type": "string" } },
           "scopes": {
             "type": "array",

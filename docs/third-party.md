@@ -10,6 +10,8 @@ The editor uses Monaco (MIT) on desktops and CodeMirror (MIT) on touch screens, 
 
 The server's Rust dependencies and exact versions are recorded in `Cargo.lock`; their licenses are distributed in their crates. The binary statically links OpenSSL (Apache-2.0), built from source for `webauthn-rs`, SQLite (public domain), and AWS-LC (ISC AND (Apache-2.0 OR ISC) AND OpenSSL), for TLS to push services.
 
+The desktop app runs Meka (AGPL-3.0-or-later). Each of its downloads carries `THIRD-PARTY-NOTICES.txt`, which `crates/meka-studio-desktop/notices.py` writes from this page and the license files of every crate and npm package built into the app.
+
 Chinese, Japanese, and Korean emphasis uses remark-cjk-friendly (MIT).
 
 The favicon and Home Screen icons come from [Meka's assets](https://github.com/k4yt3x/meka/tree/0.64.1/assets).

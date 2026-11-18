@@ -7,6 +7,7 @@ import {
   EDITOR_FONT,
   FILES_FONT,
   CONVERSATION_WIDTH,
+  conversationAnchorIn,
 } from './storage';
 function storage(): Storage {
   const map = new Map<string, string>();
@@ -77,7 +78,7 @@ it('takes shared preferences from Meka Studio, checked, and leaves this deviceâ€
     showTurnContext: true,
     foldSteps: false,
     expandThinking: true,
-    completionSound: false,
+    completionSound: true,
     dataSaver: true,
     layout: { panel: 'context' },
   });
@@ -89,7 +90,7 @@ it('takes shared preferences from Meka Studio, checked, and leaves this deviceâ€
     foldSteps: false,
     expandThinking: true,
     inAppNotifications: true,
-    completionSound: false,
+    completionSound: true,
     providerOrder: { accounts: ['work'], profiles: [] },
   });
 });
@@ -155,7 +156,7 @@ it('bounds stored panel widths, fonts, widths and offsets', () => {
     filesFontSize: 32,
     conversationFontSize: CONVERSATION_FONT.default,
     conversationMaxWidth: CONVERSATION_WIDTH.default,
-    conversationAnchor: 'page',
+    conversationAnchor: undefined,
     conversationOffset: 10_000,
   });
   const adapter = new BrowserStorage(local);
@@ -199,9 +200,16 @@ it('restores the reading defaults without touching the theme', () => {
     theme: 'dark',
     conversationFontSize: CONVERSATION_FONT.default,
     conversationMaxWidth: CONVERSATION_WIDTH.default,
-    conversationAnchor: 'page',
+    conversationAnchor: undefined,
     conversationOffset: CONVERSATION_OFFSET.default,
   });
+});
+
+it('centers the conversation on its area in the desktop app and on the page in a browser', () => {
+  expect(conversationAnchorIn(undefined, true)).toBe('area');
+  expect(conversationAnchorIn(undefined, false)).toBe('page');
+  expect(conversationAnchorIn('page', true)).toBe('page');
+  expect(conversationAnchorIn('area', false)).toBe('area');
 });
 
 it('tracks seen sessions only forward, shares them across tabs, and bounds them', () => {

@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use axum::{
     Json,
-    extract::{Query, State},
+    extract::{Path, Query, State},
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -13,7 +13,7 @@ use serde::Deserialize;
 use crate::{
     app::App,
     auth::Signed,
-    desktop::{Desktop, DesktopSettings, DesktopState, Host, Notification},
+    desktop::{Desktop, DesktopSettings, DesktopState, Folder, Host, Notification},
     error::{ApiError, ApiResult},
 };
 
@@ -112,15 +112,20 @@ pub(crate) async fn restart_meka(State(app): State<App>, _signed: Signed) -> Api
 
 #[utoipa::path(
     post,
-    path = "/api/desktop/logs/open",
+    path = "/api/desktop/folders/{folder}/open",
     tag = "desktop",
+    params(("folder" = Folder, Path, description = "The folder to open")),
     responses(
         (status = 204, description = "The folder is open in the file manager"),
         (status = 404, description = "Not the desktop app", body = crate::error::Problem)
     )
 )]
-pub(crate) async fn open_logs(State(app): State<App>, _signed: Signed) -> ApiResult<StatusCode> {
-    host(&app)?.open_logs()?;
+pub(crate) async fn open_folder(
+    State(app): State<App>,
+    _signed: Signed,
+    Path(folder): Path<Folder>,
+) -> ApiResult<StatusCode> {
+    host(&app)?.open_folder(folder)?;
     Ok(StatusCode::NO_CONTENT)
 }
 

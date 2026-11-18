@@ -1913,6 +1913,13 @@ export interface components {
      */
     InfoResponse: {
       default_permission: string;
+      /**
+       * @description The directory a session works in when `POST /v1/sessions` names none: the server process's
+       *     own. Stated to a token that holds a `sessions` scope, as a session's own directory is;
+       *     omitted for any other token, and when the server cannot determine it or its name is not
+       *     UTF-8.
+       */
+      default_working_directory?: string | null;
       enabled_permissions: string[];
       /**
        * @description The scopes the calling token holds, sorted. A client otherwise learns what it may do by

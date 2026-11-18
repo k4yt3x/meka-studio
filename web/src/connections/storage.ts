@@ -53,8 +53,20 @@ function normalizeEditorFontSize(value: unknown): number {
   return fontSizeWithin(value, EDITOR_FONT);
 }
 
-function normalizeConversationAnchor(value: unknown): ConversationAnchor {
-  return value === 'area' ? 'area' : 'page';
+/** The anchor chosen, or none, where the default of where Meka Studio runs applies. */
+function normalizeConversationAnchor(value: unknown): ConversationAnchor | undefined {
+  return value === 'area' || value === 'page' ? value : undefined;
+}
+
+/**
+ * What the conversation is centered on: the anchor `chosen`, or by default its area in the desktop
+ * app and the page in a browser, where a tab sidebar may sit beside it.
+ */
+export function conversationAnchorIn(
+  chosen: ConversationAnchor | undefined,
+  desktopApp: boolean,
+): ConversationAnchor {
+  return chosen ?? (desktopApp ? 'area' : 'page');
 }
 
 /** The order accounts and profiles were put in, by name; one it does not name follows them. */
@@ -104,7 +116,8 @@ export interface Settings {
   conversationFontSize: number;
   conversationMaxWidth: ConversationMaxWidth;
   /** Where the reading column is centered: the page's middle or the conversation area's. */
-  conversationAnchor: ConversationAnchor;
+  /** None where the default applies: {@link conversationAnchorIn} says which. */
+  conversationAnchor: ConversationAnchor | undefined;
   /** Pixels the reading column moves right of its center; negative moves it left. */
   conversationOffset: number;
   /** The terminal's font size, in pixels; Ctrl with the wheel or keys changes it for a while. */
@@ -210,7 +223,7 @@ const defaults = (): Settings => ({
   theme: 'system',
   conversationFontSize: CONVERSATION_FONT.default,
   conversationMaxWidth: CONVERSATION_WIDTH.default,
-  conversationAnchor: 'page',
+  conversationAnchor: undefined,
   conversationOffset: CONVERSATION_OFFSET.default,
   terminalFontSize: TERMINAL_FONT.default,
   editorFontSize: EDITOR_FONT.default,
@@ -220,7 +233,7 @@ const defaults = (): Settings => ({
   foldSteps: true,
   expandThinking: false,
   inAppNotifications: true,
-  completionSound: false,
+  completionSound: true,
   providerOrder: { accounts: [], profiles: [] },
   dataSaver: false,
   layout: {
@@ -281,7 +294,7 @@ function normalizeSettings(value: unknown): Settings {
     foldSteps: value.foldSteps !== false,
     expandThinking: value.expandThinking === true,
     inAppNotifications: value.inAppNotifications !== false,
-    completionSound: value.completionSound === true,
+    completionSound: value.completionSound !== false,
     providerOrder: normalizeProviderOrder(value.providerOrder),
     dataSaver: value.dataSaver === true,
     layout: normalizeLayout(object(value.layout) ? value.layout : {}),

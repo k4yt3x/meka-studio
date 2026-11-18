@@ -9,18 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- A desktop app for Linux, macOS and Windows runs Meka Studio with a Meka of its own.
+- Meka Studio Desktop, an app for Linux, macOS and Windows, runs Meka Studio with its own Meka.
 - The desktop app keeps its Meka's config and sessions apart from any other Meka on the computer.
-- Closing the desktop app's window keeps Meka running in the tray, or quits, as you choose.
+- Closing the desktop app's window the first time asks whether to keep Meka running in the tray.
 - The desktop app shows system notifications, and restarts Meka from Settings → About.
+- The desktop app opens Meka's config, data and log folders from Settings → About.
 - The desktop app asks GitHub for a newer release once a day, which can be turned off.
 - On Windows and macOS, the desktop app's window has its buttons in Meka Studio's top row.
+- On Windows, the desktop app comes as an installer, or as a zip that keeps its data beside it.
+- Starting another copy of the desktop app shows the running one, and says where it runs from.
+- The desktop app's downloads carry its license and the third-party notices.
+- The terminal opens on the new conversation screen too, in the folder chosen for it.
+- The desktop app centers the conversation in its area by default; a browser keeps the page.
+- In the desktop app, files and folders dropped on a conversation add their paths; images attach.
 
 ### Changed
 
 - Building from source with `cargo build` needs WebKitGTK on Linux; `-p meka-studio` skips the app.
 - Before Meka has a profile, a new conversation shows a button to Providers in place of the input.
 - Reading options show Offset only where it can move the conversation.
+- A page or panel still loading shows its spinner in the middle of its room.
+- Settings → Providers and Instructions show an empty list as MCP and the sidebar's pages do.
+- Settings → MCP and Instructions are titled as their entries, and Edit sits beside the title.
+- The buttons that add an MCP server, memory, skill or schedule are named as the others are.
+- With Meka 0.96.0, a new conversation shows Meka's default folder, where Files and terminals open.
+- The completion sound is on by default.
+- Uploads in Files show as rows like the tree's, and one that landed leaves, selected in the tree.
+
+### Fixed
+
+- An error on the new conversation screen sits as far from the title as from the message box.
+- Errors from the message box, a new session, and the sidebar's import can be dismissed.
+- A conversation opened where it can't center on the window centers in its area, not at its edge.
+- Moving the conversation, then making the window smaller, no longer lets the whole app scroll.
 
 ## [0.43.0] - 2026-11-16
 

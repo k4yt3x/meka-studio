@@ -27,10 +27,10 @@ export function McpPage() {
     Boolean(selected) && canRead,
   );
   return (
-    <div className="page">
+    <div className="page settings-page">
       <header className="page-heading">
         <div>
-          <h1>MCP servers</h1>
+          <h1>MCP</h1>
         </div>
         <div className="actions">
           <Button variant="secondary" onClick={() => void servers.refetch()}>
@@ -43,7 +43,7 @@ export function McpPage() {
             onClick={() => setAdding(true)}
           >
             <Plus size={16} />
-            Add server
+            New server
           </Button>
         </div>
       </header>
@@ -53,78 +53,80 @@ export function McpPage() {
           {outcome}
         </p>
       )}
-      {servers.isPending && <Loading />}
-      <div className="resource-grid mcp-grid">
-        {servers.data?.servers.map((server) => (
-          <article className="panel mcp-card" key={server.name}>
-            <header className="card-heading">
-              <Plug size={20} />
-              <h2>{server.name}</h2>
-              <span className={`badge ${server.state === 'connected' ? 'success' : ''}`}>
-                {server.state}
-              </span>
-              {/* The MCP revision a connected server speaks, which Meka settles as it connects. */}
-              {server.protocol_version && (
-                <span className="badge" title="MCP protocol version">
-                  {server.protocol_version}
+      {servers.isPending && <Loading fill />}
+      {Boolean(servers.data?.servers.length) && (
+        <div className="resource-grid mcp-grid">
+          {servers.data?.servers.map((server) => (
+            <article className="panel mcp-card" key={server.name}>
+              <header className="card-heading">
+                <Plug size={20} />
+                <h2>{server.name}</h2>
+                <span className={`badge ${server.state === 'connected' ? 'success' : ''}`}>
+                  {server.state}
                 </span>
-              )}
-            </header>
-            <ServerSummary
-              server={server}
-              onEdit={setEditing}
-              onSignIn={setSigningIn}
-              onRemoved={() => void runtime.queries.invalidateQueries()}
-            >
-              <div className="actions wrap">
-                <Button
-                  variant="secondary"
-                  disabled={!canRead || server.state !== 'connected'}
-                  title={
-                    !canRead
-                      ? 'Requires mcp:r'
-                      : server.state !== 'connected'
-                        ? 'Tools are available once this server connects.'
-                        : undefined
-                  }
-                  onClick={() => setSelected(server.name)}
-                >
-                  View tools
-                </Button>
-                <Button
-                  variant="ghost"
-                  disabled={!canWrite || action.busy || server.state === 'disabled'}
-                  title={
-                    !canWrite
-                      ? 'Requires mcp:w'
-                      : server.state === 'disabled'
-                        ? 'Enable this server first.'
-                        : undefined
-                  }
-                  onClick={() =>
-                    void action.run(async () => {
-                      if (!api) return;
-                      const result = await api.mutate<Schema['McpReconnectResponse']>(
-                        'POST',
-                        `/v1/mcp/${segment(server.name)}/reconnect`,
-                      );
-                      setOutcome(
-                        `${result.server}: ${result.state}${result.state === 'failed' ? '. Check the MCP server configuration and logs.' : result.state === 'pending' ? '. A connection attempt is already in progress.' : '.'}`,
-                      );
-                      await runtime.queries.invalidateQueries();
-                    })
-                  }
-                >
-                  Reconnect
-                </Button>
-              </div>
-            </ServerSummary>
-          </article>
-        ))}
-      </div>
-      {servers.data?.servers.length === 0 && <Empty title="No MCP servers configured" />}
+                {/* The MCP revision a connected server speaks, which Meka settles as it connects. */}
+                {server.protocol_version && (
+                  <span className="badge" title="MCP protocol version">
+                    {server.protocol_version}
+                  </span>
+                )}
+              </header>
+              <ServerSummary
+                server={server}
+                onEdit={setEditing}
+                onSignIn={setSigningIn}
+                onRemoved={() => void runtime.queries.invalidateQueries()}
+              >
+                <div className="actions wrap">
+                  <Button
+                    variant="secondary"
+                    disabled={!canRead || server.state !== 'connected'}
+                    title={
+                      !canRead
+                        ? 'Requires mcp:r'
+                        : server.state !== 'connected'
+                          ? 'Tools are available once this server connects.'
+                          : undefined
+                    }
+                    onClick={() => setSelected(server.name)}
+                  >
+                    View tools
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    disabled={!canWrite || action.busy || server.state === 'disabled'}
+                    title={
+                      !canWrite
+                        ? 'Requires mcp:w'
+                        : server.state === 'disabled'
+                          ? 'Enable this server first.'
+                          : undefined
+                    }
+                    onClick={() =>
+                      void action.run(async () => {
+                        if (!api) return;
+                        const result = await api.mutate<Schema['McpReconnectResponse']>(
+                          'POST',
+                          `/v1/mcp/${segment(server.name)}/reconnect`,
+                        );
+                        setOutcome(
+                          `${result.server}: ${result.state}${result.state === 'failed' ? '. Check the MCP server configuration and logs.' : result.state === 'pending' ? '. A connection attempt is already in progress.' : '.'}`,
+                        );
+                        await runtime.queries.invalidateQueries();
+                      })
+                    }
+                  >
+                    Reconnect
+                  </Button>
+                </div>
+              </ServerSummary>
+            </article>
+          ))}
+        </div>
+      )}
+      {servers.data?.servers.length === 0 && <Empty title="No MCP servers yet" />}
       {servers.data?.orphaned_credentials?.length ? (
-        <section className="panel mcp-leftovers">
+        <section className="panel">
           <h2>Leftover credentials</h2>
           <p className="muted small">Stored for servers no longer configured.</p>
           {servers.data.orphaned_credentials.map((name) => (
@@ -146,7 +148,7 @@ export function McpPage() {
           ))}
         </section>
       ) : null}
-      <Dialog open={adding} onOpenChange={setAdding} title="Add MCP server" wide>
+      <Dialog open={adding} onOpenChange={setAdding} title="New MCP server" wide>
         {adding && (
           <McpServerForm
             onSaved={async () => {
@@ -202,7 +204,7 @@ export function McpPage() {
       >
         <ErrorNotice error={tools.error} />
         {tools.isPending ? (
-          <Loading />
+          <Loading fill />
         ) : (
           tools.data?.tools.map((tool) => (
             <article className="tool-catalog-entry" key={tool.raw_name}>

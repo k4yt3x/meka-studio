@@ -276,7 +276,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/desktop/logs/open': {
+  '/api/desktop/folders/{folder}/open': {
     parameters: {
       query?: never;
       header?: never;
@@ -285,7 +285,7 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    post: operations['open_logs'];
+    post: operations['open_folder'];
     delete?: never;
     options?: never;
     head?: never;
@@ -708,7 +708,7 @@ export interface components {
      * @description What closing the window does.
      * @enum {string}
      */
-    CloseAction: 'tray' | 'quit';
+    CloseAction: 'ask' | 'tray' | 'quit';
     /** @description Confirming who you are: a passkey's answer, or the password where there is no passkey. */
     Confirmation: {
       challenge?: string | null;
@@ -729,7 +729,7 @@ export interface components {
       check_updates: boolean;
       /**
        * @description What closing the window does.
-       * @default tray
+       * @default ask
        */
       close: components['schemas']['CloseAction'];
       /**
@@ -744,6 +744,8 @@ export interface components {
       logs: string;
       /** @description The Meka the app runs. */
       meka: components['schemas']['MekaProcess'];
+      /** @description Whether the app is a portable copy, keeping everything in a folder beside it. */
+      portable: boolean;
       /** @description The app's settings. */
       settings: components['schemas']['DesktopSettings'];
       update?: components['schemas']['Update'] | null;
@@ -801,6 +803,11 @@ export interface components {
       /** @description Whether to replace a file of the same name. */
       replace?: boolean;
     };
+    /**
+     * @description A folder of the desktop app's that the interface can open in the file manager.
+     * @enum {string}
+     */
+    Folder: 'config' | 'data' | 'logs';
     /** @description How a repository stands. */
     GitStatus: {
       /**
@@ -1779,11 +1786,14 @@ export interface operations {
       };
     };
   };
-  open_logs: {
+  open_folder: {
     parameters: {
       query?: never;
       header?: never;
-      path?: never;
+      path: {
+        /** @description The folder to open */
+        folder: components['schemas']['Folder'];
+      };
       cookie?: never;
     };
     requestBody?: never;
