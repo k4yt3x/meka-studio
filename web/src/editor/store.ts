@@ -62,7 +62,8 @@ export interface Documents {
 
 /**
  * The tabs of one place, such as a session, in order: a file's by its path, a terminal's by
- * {@link terminalTab}. With them, the one shown, and every one by when it was last shown.
+ * {@link terminalTab}, and a file as a commit holds it by {@link commitTab}. With them, the one
+ * shown, and every one by when it was last shown.
  */
 export interface Tabs {
   keys: readonly string[];
@@ -96,6 +97,54 @@ export function terminalTab(id: string) {
 /** The terminal the tab `key` is of, if it is one. */
 export function terminalOf(key: string): string | undefined {
   return key.startsWith(TERMINAL) ? key.slice(TERMINAL.length) : undefined;
+}
+
+const COMMIT = 'commit:';
+
+/** A file as a commit holds it, to show beside what the commit before it held. */
+export interface CommitFile {
+  /** The repository's folder. */
+  repo: string;
+  commit: string;
+  /** The commit it is compared with: the first parent; none for a first commit. */
+  parent: string | null;
+  /** Where it is in the repository after the commit, its names separated by `/`. */
+  path: string;
+  /** Where it was before, renamed. */
+  from: string | null;
+}
+
+/** The tab of `file`; no file's path, which starts at a root, is like it. */
+export function commitTab(file: CommitFile): string {
+  return COMMIT + JSON.stringify([file.repo, file.commit, file.parent, file.path, file.from]);
+}
+
+/** The file as a commit holds it that the tab `key` is of, if it is one, as kept or made. */
+export function commitOf(key: string): CommitFile | undefined {
+  if (!key.startsWith(COMMIT)) return undefined;
+  let parts: unknown;
+  try {
+    parts = JSON.parse(key.slice(COMMIT.length));
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(parts) || parts.length !== 5) return undefined;
+  const [repo, commit, parent, path, from] = parts as unknown[];
+  const text = (value: unknown) => typeof value === 'string';
+  if (!text(repo) || !text(commit) || !text(path)) return undefined;
+  if (!(parent === null || text(parent)) || !(from === null || text(from))) return undefined;
+  return {
+    repo: repo as string,
+    commit: commit as string,
+    parent: parent as string | null,
+    path: path as string,
+    from: from as string | null,
+  };
+}
+
+/** The file the tab `key` is of, by its path: none for a terminal's, or a commit's. */
+export function fileOf(key: string): string | undefined {
+  return key.startsWith(TERMINAL) || key.startsWith(COMMIT) ? undefined : key;
 }
 
 /** The line ending most of `text`'s lines end with. */
@@ -139,6 +188,11 @@ export class EditorStore {
   private keeping = new Map<string, string>();
   /** Files put back after a reload, read only once they show. */
   private unread = new Set<string>();
+  /**
+   * The files shown beside what the last commit holds, rather than to edit alone, with the
+   * repository each is in.
+   */
+  private changes = new Map<string, string>();
   documents: Documents | undefined;
 
   constructor(
@@ -188,13 +242,22 @@ export class EditorStore {
     const running = new Map(
       live.filter((view) => !this.ended.has(view.id)).map((view) => [terminalTab(view.id), view]),
     );
-    const back = [...new Set(saved.tabs)].filter(
-      (key) => terminalOf(key) === undefined || running.has(key),
+    const back = [...new Set(saved.tabs)].filter((key) =>
+      fileOf(key) !== undefined
+        ? true
+        : terminalOf(key) !== undefined
+          ? running.has(key)
+          : commitOf(key) !== undefined,
     );
     for (const key of back) {
       const view = running.get(key);
       if (view) this.shells.set(view.id, view);
-      else if (this.add(key) && this.files.get(key)?.state === 'loading') this.unread.add(key);
+      else if (
+        fileOf(key) !== undefined &&
+        this.add(key) &&
+        this.files.get(key)?.state === 'loading'
+      )
+        this.unread.add(key);
     }
     const keys = [...back, ...tabs.keys.filter((key) => !back.includes(key))];
     const active =
@@ -263,7 +326,7 @@ export class EditorStore {
     return [...tabs.used, ...tabs.keys].find((key) => terminalOf(key) !== undefined);
   }
 
-  /** The file tab shown last in `place`. */
+  /** The tab shown last in `place` that is not a terminal's: a file's, or a commit's. */
   lastFile(place: string): string | undefined {
     return this.tabs(place).used.find((key) => terminalOf(key) === undefined);
   }
@@ -294,7 +357,7 @@ export class EditorStore {
 
   /** The folders the open files are in, for their changes on disk to be followed. */
   folders(place: string): string[] {
-    const paths = this.tabs(place).keys.filter((key) => terminalOf(key) === undefined);
+    const paths = this.tabs(place).keys.flatMap((key) => fileOf(key) ?? []);
     return [...new Set(paths.map(parent))];
   }
 
@@ -324,12 +387,41 @@ export class EditorStore {
     this.asks.set(key, this.asked(key) + 1);
   }
 
-  /** Opens `path` in `place`, after the tab shown, and shows it, at `lines` if given. */
+  /**
+   * Opens `path` in `place`, after the tab shown, and shows it to edit, at `lines` if given, rather
+   * than beside the last commit.
+   */
   open(place: string, path: string, lines?: LineTarget) {
     if (lines) this.lines.set(path, lines);
     else this.lines.delete(path);
+    this.changes.delete(path);
     this.insert(place, path);
     if (this.add(path) && this.files.get(path)?.state === 'loading') void this.load(path);
+    this.emit();
+  }
+
+  /**
+   * Opens `path` in `place`, as {@link open} does, beside what the last commit of the repository
+   * `repo` holds.
+   */
+  openChanges(place: string, path: string, repo: string) {
+    this.open(place, path);
+    this.changes.set(path, repo);
+    this.emit();
+  }
+
+  /** The repository whose last commit the file `path` shows beside, if it does. */
+  changesOf(path: string): string | undefined {
+    return this.changes.get(path);
+  }
+
+  /**
+   * Shows the file `path` beside what the last commit of the repository `repo` holds, or with
+   * none, alone to edit.
+   */
+  showChanges(path: string, repo: string | undefined) {
+    if (repo === undefined) this.changes.delete(path);
+    else this.changes.set(path, repo);
     this.emit();
   }
 
@@ -391,7 +483,7 @@ export class EditorStore {
   moved(from: string, to: string) {
     const paths = [...this.files.keys()].filter((path) => within(path, from));
     if (!paths.length) return;
-    const follow = (key: string) => (terminalOf(key) === undefined ? movedTo(key, from, to) : key);
+    const follow = (key: string) => (fileOf(key) === undefined ? key : movedTo(key, from, to));
     for (const path of paths) {
       const file = this.files.get(path)!;
       const now = follow(path);
@@ -412,6 +504,9 @@ export class EditorStore {
       const lines = this.lines.get(path);
       this.lines.delete(path);
       if (lines) this.lines.set(now, lines);
+      const repo = this.changes.get(path);
+      this.changes.delete(path);
+      if (repo !== undefined) this.changes.set(now, repo);
     }
     for (const [place, tabs] of this.places)
       this.places.set(place, {
@@ -420,6 +515,12 @@ export class EditorStore {
         used: tabs.used.map(follow),
       });
     if (this.focusing !== undefined) this.focusing = follow(this.focusing);
+    this.emit();
+  }
+
+  /** Opens a tab for `file`, as a commit holds it, in `place`, after the tab shown, and shows it. */
+  openCommitFile(place: string, file: CommitFile) {
+    this.insert(place, commitTab(file));
     this.emit();
   }
 
@@ -491,9 +592,11 @@ export class EditorStore {
         this.shells.delete(terminal);
         continue;
       }
+      if (fileOf(key) === undefined) continue;
       this.files.delete(key);
       this.unread.delete(key);
       this.lines.delete(key);
+      this.changes.delete(key);
       this.documents?.drop(key);
     }
     this.emit();
@@ -705,6 +808,7 @@ export class EditorStore {
     this.ended.clear();
     this.keeping.clear();
     this.unread.clear();
+    this.changes.clear();
     this.emit();
   }
 }

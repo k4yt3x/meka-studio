@@ -1489,6 +1489,366 @@
         }
       }
     },
+    "/api/git/commit": {
+      "get": {
+        "tags": ["git"],
+        "summary": "What the commit changed from its first parent, or from nothing for a first commit: each file\nwith the lines it added and removed, and the commit's whole message.",
+        "operationId": "commit_changes",
+        "parameters": [
+          {
+            "name": "repo",
+            "in": "query",
+            "description": "The repository's folder, as a listing names it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commit",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitChanges"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": ["git"],
+        "summary": "Commits what is staged, as from a terminal: the repository's hooks run, and the commit is\nsigned if the user's config says so. git runs to its end, however long its hooks take; past five\nminutes the answer is a problem saying so. What a hook or git says when it fails is the\nproblem's detail.",
+        "operationId": "commit",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NewCommit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {},
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/git/diffstat": {
+      "get": {
+        "tags": ["git"],
+        "summary": "The lines each change since the last commit of the repository whose folder is `repo` adds and\nremoves, staged or not, new files' too. A binary file's, or one past 10 MiB, are not counted.\nRead by running git, which runs no program the repository's own config names.",
+        "operationId": "diff_stat",
+        "parameters": [
+          {
+            "name": "repo",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiffStat"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/git/file": {
+      "get": {
+        "tags": ["git"],
+        "summary": "The file `path` as the commit `commit` of the repository whose folder is `repo` holds it, to\ncompare with what is on disk: its text, up to 10 MiB. A path the commit holds no file at, or a\nfolder, a symlink or a submodule, is 404 with the problem type `not-committed`. Read by running\ngit, which reads only its own objects and fetches none.",
+        "operationId": "file",
+        "parameters": [
+          {
+            "name": "repo",
+            "in": "query",
+            "description": "The repository's folder, as a listing names it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "commit",
+            "in": "query",
+            "description": "The commit's full id, as the repository's status names it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "query",
+            "description": "Where the file is in the repository, its names separated by `/`, as a change names it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommittedFile"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/git/history": {
+      "get": {
+        "tags": ["git"],
+        "summary": "The commits from `head` back, newest first, 50 at a time.",
+        "operationId": "history",
+        "parameters": [
+          {
+            "name": "repo",
+            "in": "query",
+            "description": "The repository's folder, as a listing names it.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "head",
+            "in": "query",
+            "description": "The commit the history goes back from, by its full id, as the repository's status names\nit: the same for every page.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "skip",
+            "in": "query",
+            "description": "How many commits the pages before this one held.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/History"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/git/stage": {
+      "post": {
+        "tags": ["git"],
+        "summary": "Stages what changed at `paths`, new and deleted files too, as `git add -A` does: with the\nfilters the repository names, as from a terminal.",
+        "operationId": "stage",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Paths"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {},
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/git/status": {
       "get": {
         "tags": ["git"],
@@ -1514,6 +1874,53 @@
               }
             }
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/git/unstage": {
+      "post": {
+        "tags": ["git"],
+        "summary": "Unstages `paths`: the index takes them back as the last commit holds them.",
+        "operationId": "unstage",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Paths"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {},
           "400": {
             "content": {
               "application/json": {
@@ -1836,7 +2243,7 @@
       "Change": {
         "type": "object",
         "description": "An entry that differs from the last commit, or that git ignores.",
-        "required": ["path", "kind"],
+        "required": ["path", "kind", "submodule", "staged"],
         "properties": {
           "from": {
             "type": ["string", "null"],
@@ -1848,6 +2255,13 @@
           "path": {
             "type": "string",
             "description": "Where it is in the repository, its names separated by `/`. A folder git tells of as a\nwhole, new or ignored with all it holds, ends with `/`."
+          },
+          "staged": {
+            "$ref": "#/components/schemas/Staged"
+          },
+          "submodule": {
+            "type": "boolean",
+            "description": "Whether it is a submodule, changed as its commit did; what changed inside it is its own\nstatus's to tell."
           }
         }
       },
@@ -1856,10 +2270,129 @@
         "description": "How an entry differs from the last commit, as Files marks it.",
         "enum": ["modified", "added", "deleted", "renamed", "untracked", "ignored", "conflicted"]
       },
+      "ChangedFile": {
+        "type": "object",
+        "description": "A file a commit changed, with the lines it added and removed: none for a binary file, or one\npast 10 MiB.",
+        "required": ["path", "kind"],
+        "properties": {
+          "added": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "from": {
+            "type": ["string", "null"],
+            "description": "Where it was before, renamed."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ChangeKind"
+          },
+          "path": {
+            "type": "string",
+            "description": "Where it is in the repository after the commit, its names separated by `/`."
+          },
+          "removed": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "CloseAction": {
         "type": "string",
         "description": "What closing the window does.",
         "enum": ["ask", "tray", "quit"]
+      },
+      "Commit": {
+        "type": "object",
+        "description": "A commit, as the history lists it.",
+        "required": ["id", "parents", "author", "date", "subject"],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "description": "When its author wrote it, in RFC 3339."
+          },
+          "id": {
+            "type": "string"
+          },
+          "parents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The commits it follows: none for a first commit, two or more for a merge."
+          },
+          "subject": {
+            "type": "string",
+            "description": "Its message's first line."
+          }
+        }
+      },
+      "CommitChanges": {
+        "type": "object",
+        "description": "What a commit changed from the commit before it: its first parent, for a merge.",
+        "required": ["id", "parents", "author", "email", "date", "message", "files", "too_many"],
+        "properties": {
+          "author": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "description": "When its author wrote it, in RFC 3339."
+          },
+          "email": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChangedFile"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "parents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "too_many": {
+            "type": "boolean",
+            "description": "Whether more changed than are told: past 10,000, none are."
+          }
+        }
+      },
+      "CommittedFile": {
+        "type": "object",
+        "description": "A file as a commit holds it, to compare with what is on disk.",
+        "required": ["text", "size", "binary", "too_large"],
+        "properties": {
+          "binary": {
+            "type": "boolean",
+            "description": "Whether it looks binary, in which case `text` is empty."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Its size, in bytes.",
+            "minimum": 0
+          },
+          "text": {
+            "type": "string"
+          },
+          "too_large": {
+            "type": "boolean",
+            "description": "Whether it is past 10 MiB, the most the editor takes, in which case `text` is empty."
+          }
+        }
       },
       "Confirmation": {
         "type": "object",
@@ -2003,6 +2536,24 @@
           }
         }
       },
+      "DiffStat": {
+        "type": "object",
+        "description": "The lines each change since the last commit adds and removes.",
+        "required": ["files", "too_many"],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FileStat"
+            },
+            "description": "Each file changed, new ones too, by its path as the status names it."
+          },
+          "too_many": {
+            "type": "boolean",
+            "description": "Whether more changed than are told: past 10,000, none are."
+          }
+        }
+      },
       "Entry": {
         "type": "object",
         "description": "An entry in a folder.",
@@ -2061,6 +2612,26 @@
           "terminal": {
             "type": "boolean",
             "description": "Whether terminals may be opened."
+          }
+        }
+      },
+      "FileStat": {
+        "type": "object",
+        "description": "The lines a file's change adds and removes: none for a binary file, or one past 10 MiB.",
+        "required": ["path"],
+        "properties": {
+          "added": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          },
+          "removed": {
+            "type": ["integer", "null"],
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -2124,6 +2695,23 @@
           "upstream": {
             "type": ["string", "null"],
             "description": "The branch it follows, if any."
+          }
+        }
+      },
+      "History": {
+        "type": "object",
+        "description": "A page of a branch's history, newest first.",
+        "required": ["commits", "more"],
+        "properties": {
+          "commits": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Commit"
+            }
+          },
+          "more": {
+            "type": "boolean",
+            "description": "Whether older commits follow."
           }
         }
       },
@@ -2263,6 +2851,24 @@
           },
           "to": {
             "type": "string"
+          }
+        }
+      },
+      "NewCommit": {
+        "type": "object",
+        "description": "A commit to make.",
+        "required": ["repo", "message"],
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "repo": {
+            "type": "string",
+            "description": "The repository's folder, as a listing names it."
+          },
+          "tracked": {
+            "type": "boolean",
+            "description": "Stage every change to a file git already tracks first, as `git commit -a` does."
           }
         }
       },
@@ -2433,6 +3039,24 @@
           },
           "username": {
             "type": "string"
+          }
+        }
+      },
+      "Paths": {
+        "type": "object",
+        "description": "Paths in a repository to stage or unstage.",
+        "required": ["repo", "paths"],
+        "properties": {
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Each a path in the repository, its names separated by `/`, or a folder in it, taken as\nwritten; `.` is the whole repository."
+          },
+          "repo": {
+            "type": "string",
+            "description": "The repository's folder, as a listing names it."
           }
         }
       },
@@ -2617,6 +3241,11 @@
             "minimum": 0
           }
         }
+      },
+      "Staged": {
+        "type": "string",
+        "description": "How much of an entry's change is staged, to be committed next.",
+        "enum": ["none", "some", "all"]
       },
       "StatusView": {
         "type": "object",

@@ -17,6 +17,7 @@ import {
   Ellipsis,
   Folder,
   FolderOpen,
+  GitCompareArrows,
   Info,
   LogOut,
   Settings,
@@ -37,6 +38,7 @@ import {
 } from '../connections/context';
 import type { Gateway } from '../api/gateway';
 import { FileBrowser, type FilesTarget } from './file-browser';
+import { GitPanel } from './git-panel';
 import { EditorPane } from './editor-pane';
 import { editorStore, saveFirst, useEditorStore } from '../editor/use-editor';
 import { terminalOf } from '../editor/store';
@@ -123,6 +125,7 @@ export function SessionsPage({
   const [searchOpen, setSearchOpen] = useState(false);
   const [mobileDetails, setMobileDetails] = useState(false);
   const [mobileFiles, setMobileFiles] = useState(false);
+  const [filesTab, setFilesTab] = useState<WorkspacePanel>('files');
   const { layout } = useSettings();
   const desktop = useMediaQuery(DESKTOP_LAYOUT_QUERY);
   const workspace = useRef<HTMLDivElement>(null);
@@ -142,13 +145,13 @@ export function SessionsPage({
   // Both read again while failing, as what was open before a reload waits for them.
   const status = useGateway<Gateway['StatusView']>('/api/status', undefined, true, whileFailing);
   const terminalEnabled = status.data?.features.terminal ?? false;
-  // Files and terminals are there for a session, and for a new conversation's folder; the other
-  // panels, for a session. A page has none.
+  // Files, Git and terminals are there for a session, and for a new conversation's folder; the
+  // other panels, for a session. A page has none.
   const hasWorkspace = !page && (Boolean(selected?.session) || !id);
   const panels = page
     ? []
     : PANELS.filter((panel) =>
-        panel === 'files'
+        isWorkspacePanel(panel)
           ? hasWorkspace
           : Boolean(selected?.session) && (panel !== 'schedules' || canSchedule),
       );
@@ -238,7 +241,8 @@ export function SessionsPage({
       setListByHand(false);
     }
     if (desktop) runtime.storage.layout({ panel: next });
-    else if (next === 'files') {
+    else if (next && isWorkspacePanel(next)) {
+      setFilesTab(next);
       setMobileFiles(true);
       setMobileDetails(false);
     } else if (next) {
@@ -260,8 +264,8 @@ export function SessionsPage({
     if (name === 'files') setFilesTarget(undefined);
     const open = desktop
       ? shownPanel === name
-      : name === 'files'
-        ? files
+      : isWorkspacePanel(name)
+        ? files && filesTab === name
         : details && panelTab === name;
     showPanel(open ? undefined : name);
   }
@@ -326,9 +330,8 @@ export function SessionsPage({
   }
   const mentionTarget = useRef<((text: string) => void) | undefined>(undefined);
   const workspaceValue = useMemo<Workspace>(() => {
-    /** Opens `path` in the editor, at `lines` if given. */
-    const openFile = (path: string, lines?: LineTarget) => {
-      opening.current.store.open(opening.current.place, path, lines);
+    /** Shows the editor, as a file opens in it. */
+    const showOpened = () => {
       setLastOpened('editor');
       setListByHand(false);
       if (!desktop) {
@@ -336,6 +339,11 @@ export function SessionsPage({
         setMobileFiles(false);
         setMobileDetails(false);
       }
+    };
+    /** Opens `path` in the editor, at `lines` if given. */
+    const openFile = (path: string, lines?: LineTarget) => {
+      opening.current.store.open(opening.current.place, path, lines);
+      showOpened();
     };
     /** Shows Files at the folder `path`, the entry `open` in it chosen. */
     const reveal = (path: string, open: string | undefined) => {
@@ -348,6 +356,7 @@ export function SessionsPage({
       setLastOpened('panel');
       if (desktop) runtime.storage.layout({ panel: 'files' });
       else {
+        setFilesTab('files');
         setMobileFiles(true);
         setMobileDetails(false);
         setMobileEditor(false);
@@ -355,6 +364,14 @@ export function SessionsPage({
     };
     return {
       openFile,
+      openChanges: (path, repo) => {
+        opening.current.store.openChanges(opening.current.place, path, repo);
+        showOpened();
+      },
+      openCommitFile: (file) => {
+        opening.current.store.openCommitFile(opening.current.place, file);
+        showOpened();
+      },
       folder: filesStart,
       openTerminal: terminalAvailable ? (cwd) => terminalStarter.current(cwd) : undefined,
       showFile: (path) => reveal(parent(path), basename(path)),
@@ -443,6 +460,7 @@ export function SessionsPage({
   useShortcut('toggleTerminal', toggleTerminal, terminalAvailable);
   useShortcut('newTerminal', () => startTerminal(), terminalAvailable);
   useShortcut('toggleFiles', () => togglePanel('files'), panels.includes('files'));
+  useShortcut('toggleGit', () => togglePanel('git'), panels.includes('git'));
   useShortcut('toggleContext', () => togglePanel('context'), panels.includes('context'));
   useShortcut('toggleTasks', () => togglePanel('tasks'), panels.includes('tasks'));
   useShortcut('toggleSchedules', () => togglePanel('schedules'), panels.includes('schedules'));
@@ -657,7 +675,7 @@ export function SessionsPage({
                           title={files ? 'Hide files' : 'Show files'}
                           aria-pressed={files}
                           aria-controls="session-files"
-                          onClick={() => togglePanel('files')}
+                          onClick={() => (files ? showPanel(undefined) : togglePanel(filesTab))}
                         >
                           <FolderOpen size={18} />
                         </Button>
@@ -760,6 +778,10 @@ export function SessionsPage({
                       target={target}
                     />
                   </div>
+                ) : shownPanel === 'git' ? (
+                  <div className="details-panel-body files-panel-body">
+                    <GitPanel key={filesPlace} place={filesPlace} start={filesStart} />
+                  </div>
                 ) : (
                   selected?.session && (
                     <div className="details-panel-body">
@@ -800,19 +822,46 @@ export function SessionsPage({
               <>
                 <Dialog
                   open={files}
-                  onOpenChange={(open) => showPanel(open ? 'files' : undefined)}
-                  title="Files"
+                  onOpenChange={(open) => showPanel(open ? filesTab : undefined)}
+                  title={PANEL_TITLES[filesTab]}
                   placement="right"
                   className="files-sheet"
+                  headerActions={
+                    filesTab === 'files' ? (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Git"
+                        title="Git"
+                        onClick={() => setFilesTab('git')}
+                      >
+                        <GitCompareArrows size={18} />
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="Files"
+                        title="Files"
+                        onClick={() => setFilesTab('files')}
+                      >
+                        <FolderOpen size={18} />
+                      </Button>
+                    )
+                  }
                 >
                   <div id="session-files" className="files-sheet-body">
-                    <FileBrowser
-                      key={filesPlace}
-                      place={filesPlace}
-                      start={filesStart}
-                      keep={Boolean(sessionId)}
-                      target={target}
-                    />
+                    {filesTab === 'files' ? (
+                      <FileBrowser
+                        key={filesPlace}
+                        place={filesPlace}
+                        start={filesStart}
+                        keep={Boolean(sessionId)}
+                        target={target}
+                      />
+                    ) : (
+                      <GitPanel key={filesPlace} place={filesPlace} start={filesStart} />
+                    )}
                   </div>
                 </Dialog>
                 <Dialog
@@ -1175,7 +1224,15 @@ function SessionTools({ sessionId }: { sessionId: string }) {
   );
 }
 /** The panels that tell of a session, which a narrow screen shows together in one sheet. */
-type DetailsTab = Exclude<Panel, 'files'>;
+/** The panels of what the session works on, there for a new conversation's folder too. */
+const WORKSPACE_PANELS = ['files', 'git'] as const satisfies readonly Panel[];
+type WorkspacePanel = (typeof WORKSPACE_PANELS)[number];
+
+function isWorkspacePanel(panel: Panel): panel is WorkspacePanel {
+  return (WORKSPACE_PANELS as readonly Panel[]).includes(panel);
+}
+
+type DetailsTab = Exclude<Panel, WorkspacePanel>;
 
 /**
  * How many of the session `id`'s background tasks are running: read as it opens, as its turns

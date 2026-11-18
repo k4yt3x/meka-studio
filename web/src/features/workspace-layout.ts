@@ -2,6 +2,7 @@ import { CONVERSATION_COLUMN, PANEL_WIDTH, type Panel } from '../connections/sto
 
 export const PANEL_TITLES: Record<Panel, string> = {
   files: 'Files',
+  git: 'Git',
   context: 'Context',
   tasks: 'Tasks',
   schedules: 'Schedules',

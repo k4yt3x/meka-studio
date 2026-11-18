@@ -715,6 +715,204 @@ async fn a_listing_names_its_repository_and_git_says_how_that_stands() {
 }
 
 #[tokio::test]
+async fn a_file_reads_as_the_commit_asked_for_holds_it() {
+    let (app, router, _, dir) = meka_studio().await;
+    if !app.git.available().await {
+        return;
+    }
+    let cookie = sign_in(&router).await;
+    let work = dir.path().join("work");
+    let global = dir.path().join("gitconfig");
+    std::fs::write(&global, "").unwrap();
+    let git = |args: &[&str]| {
+        let done = std::process::Command::new("git")
+            .args(["-c", "user.name=t", "-c", "user.email=t@example.org"])
+            .args(args)
+            .current_dir(&work)
+            .env("GIT_CONFIG_GLOBAL", &global)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(done.status.success());
+        String::from_utf8(done.stdout).unwrap().trim().to_owned()
+    };
+    git(&["init", "-q", "-b", "main"]);
+    std::fs::write(work.join("a b.txt"), "one\n").unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-qm", "first"]);
+    let commit = git(&["rev-parse", "HEAD"]);
+    std::fs::write(work.join("a b.txt"), "two\n").unwrap();
+    let get = |commit: &str, path: &str| {
+        let encoded = |text: &str| {
+            percent_encoding::utf8_percent_encode(text, percent_encoding::NON_ALPHANUMERIC)
+                .to_string()
+        };
+        request(
+            "GET",
+            &format!(
+                "/api/git/file?repo={}&commit={}&path={}",
+                encoded(&work.display().to_string()),
+                encoded(commit),
+                encoded(path)
+            ),
+        )
+        .header(header::COOKIE, &cookie)
+        .body(Body::empty())
+        .unwrap()
+    };
+    let read = send(&router, get(&commit, "a b.txt")).await;
+    assert_eq!(read.status(), StatusCode::OK);
+    let read = json(read).await;
+    assert_eq!(read["text"], "one\n");
+    assert_eq!(read["size"], 4);
+    assert_eq!(read["binary"], false);
+    assert_eq!(read["too_large"], false);
+    let missing = send(&router, get(&commit, "new.txt")).await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+    assert_eq!(json(missing).await["type"], "urn:meka-studio:not-committed");
+    let named = send(&router, get("HEAD", "a b.txt")).await;
+    assert_eq!(named.status(), StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn changes_are_staged_committed_and_read_back_from_the_history() {
+    let (app, router, _, dir) = meka_studio().await;
+    if !app.git.available().await {
+        return;
+    }
+    let cookie = sign_in(&router).await;
+    let work = dir.path().join("work");
+    let global = dir.path().join("gitconfig");
+    std::fs::write(&global, "").unwrap();
+    let made = std::process::Command::new("git")
+        .args(["init", "-q", "-b", "main"])
+        .current_dir(&work)
+        .env("GIT_CONFIG_GLOBAL", &global)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .output()
+        .unwrap();
+    assert!(made.status.success());
+    // Meka Studio's git reads the user's own config too: the repository's own says who commits,
+    // and keeps their signing and hooks out of the test.
+    let hooks = dir.path().join("no-hooks");
+    for (key, value) in [
+        ("user.name", "t"),
+        ("user.email", "t@example.org"),
+        ("commit.gpgsign", "false"),
+        ("core.hooksPath", hooks.to_str().unwrap()),
+    ] {
+        let set = std::process::Command::new("git")
+            .args(["config", "--local", key, value])
+            .current_dir(&work)
+            .env("GIT_CONFIG_GLOBAL", &global)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .output()
+            .unwrap();
+        assert!(set.status.success());
+    }
+    std::fs::write(work.join("a.txt"), "one\ntwo\n").unwrap();
+    let repo = work.display().to_string();
+    let encoded = |text: &str| {
+        percent_encoding::utf8_percent_encode(text, percent_encoding::NON_ALPHANUMERIC).to_string()
+    };
+    let get = |path: String| {
+        request("GET", &path)
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap()
+    };
+    let post = |path: &str, body: serde_json::Value| {
+        request("POST", path)
+            .header(header::COOKIE, &cookie)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(body.to_string()))
+            .unwrap()
+    };
+    let stat = json(
+        send(
+            &router,
+            get(format!("/api/git/diffstat?repo={}", encoded(&repo))),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(stat["files"][0]["path"], "a.txt");
+    assert_eq!(stat["files"][0]["added"], 2);
+    let staged = send(
+        &router,
+        post(
+            "/api/git/stage",
+            serde_json::json!({ "repo": repo, "paths": ["a.txt"] }),
+        ),
+    )
+    .await;
+    assert_eq!(staged.status(), StatusCode::NO_CONTENT);
+    let status = json(
+        send(
+            &router,
+            get(format!("/api/git/status?repo={}", encoded(&repo))),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(status["changes"][0]["staged"], "all");
+    let committed = send(
+        &router,
+        post(
+            "/api/git/commit",
+            serde_json::json!({ "repo": repo, "message": "first" }),
+        ),
+    )
+    .await;
+    let code = committed.status();
+    assert_eq!(code, StatusCode::NO_CONTENT, "{}", json(committed).await);
+    let status = json(
+        send(
+            &router,
+            get(format!("/api/git/status?repo={}", encoded(&repo))),
+        )
+        .await,
+    )
+    .await;
+    let head = status["commit"].as_str().unwrap().to_owned();
+    let history = json(
+        send(
+            &router,
+            get(format!(
+                "/api/git/history?repo={}&head={head}",
+                encoded(&repo)
+            )),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(history["commits"][0]["subject"], "first");
+    assert_eq!(history["more"], false);
+    let changes = json(
+        send(
+            &router,
+            get(format!(
+                "/api/git/commit?repo={}&commit={head}",
+                encoded(&repo)
+            )),
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(changes["files"][0]["kind"], "added");
+    assert_eq!(changes["files"][0]["added"], 2);
+    let nothing = send(
+        &router,
+        post(
+            "/api/git/commit",
+            serde_json::json!({ "repo": repo, "message": "again" }),
+        ),
+    )
+    .await;
+    assert_eq!(nothing.status(), StatusCode::UNPROCESSABLE_ENTITY);
+}
+
+#[tokio::test]
 async fn folders_watched_tell_of_their_changes_until_the_sign_in_ends() {
     let (_app, router, _, dir) = meka_studio().await;
     let cookie = sign_in(&router).await;

@@ -11,6 +11,8 @@ const change = (path: string, kind: Gateway['ChangeKind'], from?: string): Gatew
   path,
   kind,
   from: from ?? null,
+  submodule: false,
+  staged: 'none',
 });
 
 it('marks a file as git tells of it, and a folder for the strongest change it holds', () => {
@@ -65,6 +67,26 @@ it('marks the folder a file was renamed or deleted from, which the tree no longe
 it('marks a submodule changed as itself, beside what it holds', () => {
   const marks = gitMarks(status([change('sub', 'modified'), change('sub2/', 'untracked')]));
   expect(marks.get('/home/me/repo/sub', true)).toEqual({ kind: 'modified', own: true });
+});
+
+it('tells how a file changed, where a renamed one was, and nothing of one ignored', () => {
+  const marks = gitMarks(
+    status([
+      change('new/name.rs', 'renamed', 'old/name.rs'),
+      change('src/a.rs', 'modified'),
+      change('fresh/', 'untracked'),
+      change('x.log', 'ignored'),
+    ]),
+  );
+  expect(marks.change('/home/me/repo/new/name.rs')).toEqual({
+    kind: 'renamed',
+    from: 'old/name.rs',
+  });
+  expect(marks.change('/home/me/repo/src/a.rs')).toEqual({ kind: 'modified' });
+  expect(marks.change('/home/me/repo/fresh/deep/b.rs')).toEqual({ kind: 'untracked' });
+  expect(marks.change('/home/me/repo/x.log')).toBeUndefined();
+  expect(marks.change('/home/me/repo/src/same.rs')).toBeUndefined();
+  expect(marks.change('/home/me/other/new/name.rs')).toBeUndefined();
 });
 
 it('takes the stronger of two marks for a path told twice', () => {

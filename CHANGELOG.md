@@ -22,6 +22,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The terminal opens on the new conversation screen too, in the folder chosen for it.
 - The desktop app centers the conversation in its area by default; a browser keeps the page.
 - In the desktop app, files and folders dropped on a conversation add their paths; images attach.
+- A Git panel beside Files lists the changes since the last commit, as a tree or by name.
+- Each change shows the lines it adds and removes, and the panel sums them.
+- A changed file opens in the editor beside what the last commit holds, unchanged stretches folded.
+- The Git panel stages and unstages files and folders, and commits with a message.
+- The Git panel's History lists the branch's commits, each with the files it changed.
 
 ### Changed
 
@@ -35,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - With Meka 0.96.0, a new conversation shows Meka's default folder, where Files and terminals open.
 - The completion sound is on by default.
 - Uploads in Files show as rows like the tree's, and one that landed leaves, selected in the tree.
+- Ctrl+Shift+2 now opens Git; Context, Tasks and Schedules move to Ctrl+Shift+3 to 5.
 
 ### Fixed
 
@@ -42,6 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Errors from the message box, a new session, and the sidebar's import can be dismissed.
 - A conversation opened where it can't center on the window centers in its area, not at its edge.
 - Moving the conversation, then making the window smaller, no longer lets the whole app scroll.
+- Middle-clicking an editor tab closes it when there are more tabs than fit, instead of scrolling.
 
 ## [0.43.0] - 2026-11-16
 

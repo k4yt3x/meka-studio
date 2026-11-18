@@ -15,6 +15,7 @@ const PAGE_SHORTCUTS: readonly Shortcut[] = [
   'toggleTerminal',
   'newTerminal',
   'toggleFiles',
+  'toggleGit',
   'toggleContext',
   'toggleTasks',
   'toggleSchedules',

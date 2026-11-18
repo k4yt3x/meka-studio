@@ -550,6 +550,112 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/git/commit': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * What the commit changed from its first parent, or from nothing for a first commit: each file
+     *     with the lines it added and removed, and the commit's whole message.
+     */
+    get: operations['commit_changes'];
+    put?: never;
+    /**
+     * Commits what is staged, as from a terminal: the repository's hooks run, and the commit is
+     *     signed if the user's config says so. git runs to its end, however long its hooks take; past five
+     *     minutes the answer is a problem saying so. What a hook or git says when it fails is the
+     *     problem's detail.
+     */
+    post: operations['commit'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/git/diffstat': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The lines each change since the last commit of the repository whose folder is `repo` adds and
+     *     removes, staged or not, new files' too. A binary file's, or one past 10 MiB, are not counted.
+     *     Read by running git, which runs no program the repository's own config names.
+     */
+    get: operations['diff_stat'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/git/file': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The file `path` as the commit `commit` of the repository whose folder is `repo` holds it, to
+     *     compare with what is on disk: its text, up to 10 MiB. A path the commit holds no file at, or a
+     *     folder, a symlink or a submodule, is 404 with the problem type `not-committed`. Read by running
+     *     git, which reads only its own objects and fetches none.
+     */
+    get: operations['file'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/git/history': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /** The commits from `head` back, newest first, 50 at a time. */
+    get: operations['history'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/git/stage': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /**
+     * Stages what changed at `paths`, new and deleted files too, as `git add -A` does: with the
+     *     filters the repository names, as from a terminal.
+     */
+    post: operations['stage'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/git/status': {
     parameters: {
       query?: never;
@@ -565,6 +671,23 @@ export interface paths {
     get: operations['status'];
     put?: never;
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/git/unstage': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    /** Unstages `paths`: the index takes them back as the last commit holds them. */
+    post: operations['unstage'];
     delete?: never;
     options?: never;
     head?: never;
@@ -697,6 +820,12 @@ export interface components {
        *     whole, new or ignored with all it holds, ends with `/`.
        */
       path: string;
+      staged: components['schemas']['Staged'];
+      /**
+       * @description Whether it is a submodule, changed as its commit did; what changed inside it is its own
+       *     status's to tell.
+       */
+      submodule: boolean;
     };
     /**
      * @description How an entry differs from the last commit, as Files marks it.
@@ -705,10 +834,62 @@ export interface components {
     ChangeKind:
       'modified' | 'added' | 'deleted' | 'renamed' | 'untracked' | 'ignored' | 'conflicted';
     /**
+     * @description A file a commit changed, with the lines it added and removed: none for a binary file, or one
+     *     past 10 MiB.
+     */
+    ChangedFile: {
+      /** Format: int64 */
+      added?: number | null;
+      /** @description Where it was before, renamed. */
+      from?: string | null;
+      kind: components['schemas']['ChangeKind'];
+      /** @description Where it is in the repository after the commit, its names separated by `/`. */
+      path: string;
+      /** Format: int64 */
+      removed?: number | null;
+    };
+    /**
      * @description What closing the window does.
      * @enum {string}
      */
     CloseAction: 'ask' | 'tray' | 'quit';
+    /** @description A commit, as the history lists it. */
+    Commit: {
+      author: string;
+      /** @description When its author wrote it, in RFC 3339. */
+      date: string;
+      id: string;
+      /** @description The commits it follows: none for a first commit, two or more for a merge. */
+      parents: string[];
+      /** @description Its message's first line. */
+      subject: string;
+    };
+    /** @description What a commit changed from the commit before it: its first parent, for a merge. */
+    CommitChanges: {
+      author: string;
+      /** @description When its author wrote it, in RFC 3339. */
+      date: string;
+      email: string;
+      files: components['schemas']['ChangedFile'][];
+      id: string;
+      message: string;
+      parents: string[];
+      /** @description Whether more changed than are told: past 10,000, none are. */
+      too_many: boolean;
+    };
+    /** @description A file as a commit holds it, to compare with what is on disk. */
+    CommittedFile: {
+      /** @description Whether it looks binary, in which case `text` is empty. */
+      binary: boolean;
+      /**
+       * Format: int64
+       * @description Its size, in bytes.
+       */
+      size: number;
+      text: string;
+      /** @description Whether it is past 10 MiB, the most the editor takes, in which case `text` is empty. */
+      too_large: boolean;
+    };
     /** @description Confirming who you are: a passkey's answer, or the password where there is no passkey. */
     Confirmation: {
       challenge?: string | null;
@@ -772,6 +953,13 @@ export interface components {
       push: boolean;
       user_agent: string;
     };
+    /** @description The lines each change since the last commit adds and removes. */
+    DiffStat: {
+      /** @description Each file changed, new ones too, by its path as the status names it. */
+      files: components['schemas']['FileStat'][];
+      /** @description Whether more changed than are told: past 10,000, none are. */
+      too_many: boolean;
+    };
     /** @description An entry in a folder. */
     Entry: {
       /** @description Whether its name starts with a dot, or the system marks it hidden. */
@@ -797,6 +985,14 @@ export interface components {
       push: boolean;
       /** @description Whether terminals may be opened. */
       terminal: boolean;
+    };
+    /** @description The lines a file's change adds and removes: none for a binary file, or one past 10 MiB. */
+    FileStat: {
+      /** Format: int64 */
+      added?: number | null;
+      path: string;
+      /** Format: int64 */
+      removed?: number | null;
     };
     /** @description Finishing an upload. */
     FinishUpload: {
@@ -831,6 +1027,12 @@ export interface components {
       too_many: boolean;
       /** @description The branch it follows, if any. */
       upstream?: string | null;
+    };
+    /** @description A page of a branch's history, newest first. */
+    History: {
+      commits: components['schemas']['Commit'][];
+      /** @description Whether older commits follow. */
+      more: boolean;
     };
     /**
      * @description What an entry is.
@@ -903,6 +1105,14 @@ export interface components {
     Move: {
       from: string;
       to: string;
+    };
+    /** @description A commit to make. */
+    NewCommit: {
+      message: string;
+      /** @description The repository's folder, as a listing names it. */
+      repo: string;
+      /** @description Stage every change to a file git already tracks first, as `git commit -a` does. */
+      tracked?: boolean;
     };
     /** @description A new folder. */
     NewFolder: {
@@ -978,6 +1188,16 @@ export interface components {
     PasswordSignIn: {
       password: string;
       username: string;
+    };
+    /** @description Paths in a repository to stage or unstage. */
+    Paths: {
+      /**
+       * @description Each a path in the repository, its names separated by `/`, or a folder in it, taken as
+       *     written; `.` is the whole repository.
+       */
+      paths: string[];
+      /** @description The repository's folder, as a listing names it. */
+      repo: string;
     };
     /** @description The preferences every device shares, as the interface writes them. */
     Preferences: {
@@ -1073,6 +1293,11 @@ export interface components {
     SignedOut: {
       count: number;
     };
+    /**
+     * @description How much of an entry's change is staged, to be committed next.
+     * @enum {string}
+     */
+    Staged: 'none' | 'some' | 'all';
     /** @description How Meka Studio and Meka stand. */
     StatusView: {
       /** @description What this Meka Studio offers. */
@@ -2538,6 +2763,291 @@ export interface operations {
       };
     };
   };
+  commit_changes: {
+    parameters: {
+      query: {
+        /** @description The repository's folder, as a listing names it. */
+        repo: string;
+        commit: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CommitChanges'];
+        };
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  commit: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['NewCommit'];
+      };
+    };
+    responses: {
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  diff_stat: {
+    parameters: {
+      query: {
+        repo: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DiffStat'];
+        };
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  file: {
+    parameters: {
+      query: {
+        /** @description The repository's folder, as a listing names it. */
+        repo: string;
+        /** @description The commit's full id, as the repository's status names it. */
+        commit: string;
+        /** @description Where the file is in the repository, its names separated by `/`, as a change names it. */
+        path: string;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['CommittedFile'];
+        };
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  history: {
+    parameters: {
+      query: {
+        /** @description The repository's folder, as a listing names it. */
+        repo: string;
+        /**
+         * @description The commit the history goes back from, by its full id, as the repository's status names
+         *     it: the same for every page.
+         */
+        head: string;
+        /** @description How many commits the pages before this one held. */
+        skip?: number;
+      };
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['History'];
+        };
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  stage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Paths'];
+      };
+    };
+    responses: {
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
   status: {
     parameters: {
       query: {
@@ -2556,6 +3066,51 @@ export interface operations {
         content: {
           'application/json': components['schemas']['GitStatus'];
         };
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      422: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  unstage: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Paths'];
+      };
+    };
+    responses: {
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
       400: {
         headers: {

@@ -1,5 +1,12 @@
 import type { RefObject } from 'react';
-import { Activity, CalendarClock, FolderOpen, Gauge, SquareTerminal } from 'lucide-react';
+import {
+  Activity,
+  CalendarClock,
+  FolderOpen,
+  Gauge,
+  GitCompareArrows,
+  SquareTerminal,
+} from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { shortcutAttribute, shortcutHint, type Shortcut } from '../components/shortcut-keys';
 import type { Panel } from '../connections/storage';
@@ -7,6 +14,7 @@ import { PANEL_TITLES } from './workspace-layout';
 
 const PANEL_ITEMS: Record<Panel, { Icon: typeof FolderOpen; shortcut: Shortcut }> = {
   files: { Icon: FolderOpen, shortcut: 'toggleFiles' },
+  git: { Icon: GitCompareArrows, shortcut: 'toggleGit' },
   context: { Icon: Gauge, shortcut: 'toggleContext' },
   tasks: { Icon: Activity, shortcut: 'toggleTasks' },
   schedules: { Icon: CalendarClock, shortcut: 'toggleSchedules' },

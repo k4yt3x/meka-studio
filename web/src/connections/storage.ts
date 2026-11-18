@@ -13,7 +13,7 @@ export const PANEL_WIDTH = { default: 300, min: 280, max: 900 } as const;
 /** The conversation's width beside the terminal, in pixels. */
 export const CONVERSATION_COLUMN = { default: 420, min: 340, max: 4000 } as const;
 /** The side panels, of which one shows at a time. */
-export const PANELS = ['files', 'context', 'tasks', 'schedules'] as const;
+export const PANELS = ['files', 'git', 'context', 'tasks', 'schedules'] as const;
 export type Panel = (typeof PANELS)[number];
 type ConversationMaxWidth = number | 'full';
 export type ConversationAnchor = 'page' | 'area';
@@ -128,6 +128,10 @@ export interface Settings {
   filesFontSize: number;
   /** Whether the editor wraps long lines, as Alt+Z switches. */
   editorWordWrap: boolean;
+  /** Whether a file compared shows side by side where there is room, rather than as one column. */
+  compareSideBySide: boolean;
+  /** Whether Changes lists the files changed as a tree of their folders, rather than by name. */
+  changesTree: boolean;
   showTurnContext: boolean;
   /** Whether a turn's thinking and tool calls fold into a line once the agent says more. */
   foldSteps: boolean;
@@ -229,6 +233,8 @@ const defaults = (): Settings => ({
   editorFontSize: EDITOR_FONT.default,
   filesFontSize: FILES_FONT.default,
   editorWordWrap: false,
+  compareSideBySide: true,
+  changesTree: true,
   showTurnContext: false,
   foldSteps: true,
   expandThinking: false,
@@ -290,6 +296,8 @@ function normalizeSettings(value: unknown): Settings {
     editorFontSize: normalizeEditorFontSize(value.editorFontSize),
     filesFontSize: fontSizeWithin(value.filesFontSize, FILES_FONT),
     editorWordWrap: value.editorWordWrap === true,
+    compareSideBySide: value.compareSideBySide !== false,
+    changesTree: value.changesTree !== false,
     showTurnContext: value.showTurnContext === true,
     foldSteps: value.foldSteps !== false,
     expandThinking: value.expandThinking === true,
@@ -457,6 +465,12 @@ export class BrowserStorage {
   }
   editorWordWrap(editorWordWrap: boolean) {
     this.save({ ...this.readSettings(), editorWordWrap });
+  }
+  compareSideBySide(compareSideBySide: boolean) {
+    this.save({ ...this.readSettings(), compareSideBySide });
+  }
+  changesTree(changesTree: boolean) {
+    this.save({ ...this.readSettings(), changesTree });
   }
   conversationOffset(value: number) {
     this.save({ ...this.readSettings(), conversationOffset: normalizeConversationOffset(value) });

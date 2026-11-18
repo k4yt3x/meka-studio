@@ -1,7 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
 import type { GatewayClient } from '../api/gateway';
-import { EditorStore, lineEnding, readText, terminalTab, type Documents, type Kept } from './store';
+import {
+  commitOf,
+  commitTab,
+  EditorStore,
+  lineEnding,
+  readText,
+  terminalTab,
+  type CommitFile,
+  type Documents,
+  type Kept,
+} from './store';
 
 /** A file on a stand-in disk, as the gateway reads and saves it. */
 interface Disk {
@@ -206,6 +216,24 @@ describe('editor store', () => {
     expect(documents.drop).toHaveBeenCalledWith('/w/a.ts');
   });
 
+  it('shows a file beside its last commit until it opens to edit, or closes, through renames', () => {
+    const { store } = setup({ '/w/a.ts': { text: 'a', version: 'v0' } });
+    store.openChanges('s', '/w/a.ts', '/w');
+    expect(store.tabs('s').active).toBe('/w/a.ts');
+    expect(store.changesOf('/w/a.ts')).toBe('/w');
+    store.moved('/w', '/v');
+    expect(store.changesOf('/v/a.ts')).toBe('/w');
+    expect(store.changesOf('/w/a.ts')).toBeUndefined();
+    store.showChanges('/v/a.ts', undefined);
+    expect(store.changesOf('/v/a.ts')).toBeUndefined();
+    store.showChanges('/v/a.ts', '/v');
+    store.open('s', '/v/a.ts');
+    expect(store.changesOf('/v/a.ts')).toBeUndefined();
+    store.openChanges('s', '/v/a.ts', '/v');
+    store.close('s', ['/v/a.ts']);
+    expect(store.changesOf('/v/a.ts')).toBeUndefined();
+  });
+
   it('shows the tab beside the one closed', () => {
     const { store } = setup({});
     for (const name of ['a', 'b', 'c']) store.open('s', `/w/${name}.png`);
@@ -374,6 +402,37 @@ describe('editor store', () => {
     expect(saved.get('s')).toEqual({ tabs: [], active: undefined });
     store.restore('s', [shell('t1')]);
     expect(store.tabs('s').keys).toEqual([]);
+  });
+
+  it('keeps a file as a commit holds it apart from the files open, and puts its tab back', () => {
+    const commit: CommitFile = {
+      repo: '/w',
+      commit: 'c1',
+      parent: null,
+      path: 'src/a.ts',
+      from: null,
+    };
+    const key = commitTab(commit);
+    expect(commitOf(key)).toEqual(commit);
+    expect(commitOf('commit:["/w"]')).toBeUndefined();
+    const kept: Kept = {
+      read: () => ({ tabs: [key, 'commit:{', '/w/b.ts'], active: key }),
+      write: () => {},
+      forget: () => {},
+      view: () => undefined,
+      writeView: () => {},
+    };
+    const { store, documents } = setup({ '/w/b.ts': { text: 'b', version: 'v0' } }, kept);
+    store.restore('s', []);
+    expect(store.tabs('s')).toMatchObject({ keys: [key, '/w/b.ts'], active: key });
+    expect(store.file(key)).toBeUndefined();
+    expect(store.folders('s')).toEqual(['/w']);
+    store.moved('/w', '/v');
+    expect(store.tabs('s').keys).toEqual([key, '/v/b.ts']);
+    store.close('s', [key]);
+    expect(documents.drop).not.toHaveBeenCalledWith(key);
+    store.openCommitFile('s', { ...commit, commit: 'c2' });
+    expect(store.tabs('s').active).toBe(commitTab({ ...commit, commit: 'c2' }));
   });
 
   it('shows the tab shown before a reload, as the place opens with none of its own', () => {

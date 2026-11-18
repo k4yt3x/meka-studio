@@ -499,8 +499,7 @@ impl Files {
                 .map_err(|error| FilesError::io(error, &shown(&path)))?;
             let truncated = bytes.len() as u64 > limit;
             bytes.truncate(usize::try_from(limit).unwrap_or(usize::MAX));
-            let sniffed = bytes.get(..SNIFF_BYTES).unwrap_or(&bytes);
-            let binary = sniffed.contains(&0);
+            let binary = looks_binary(&bytes);
             let version = (!truncated && !binary).then(|| version_of(&bytes));
             let modified = modified(&metadata);
             let text = if binary {
@@ -952,6 +951,11 @@ impl Files {
     }
 }
 
+/// Whether `bytes`, a file's start or all of it, look binary rather than text.
+pub(crate) fn looks_binary(bytes: &[u8]) -> bool {
+    bytes.get(..SNIFF_BYTES).unwrap_or(bytes).contains(&0)
+}
+
 /// What a file holds, as its version: SHA-256 of `bytes`.
 fn version_of(bytes: &[u8]) -> String {
     crate::auth::sha256_hex(bytes)
@@ -1153,7 +1157,7 @@ fn permissions(mode: u32) -> String {
 
 /// Opens `path`, its symlinks followed, to read, if it is a regular file: neither a named pipe nor
 /// a device, which can act on being opened, is.
-fn open_regular(path: &Path) -> Result<(File, Metadata), FilesError> {
+pub(crate) fn open_regular(path: &Path) -> Result<(File, Metadata), FilesError> {
     let file = folder::open_regular(path)
         .map_err(|error| FilesError::io(error, &shown(path)))?
         .ok_or_else(|| FilesError::BadPath(format!("{} is not a file", shown(path))))?;

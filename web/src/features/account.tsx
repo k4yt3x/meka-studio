@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { KeyRound, LogOut, Pencil, Plus, Smartphone } from 'lucide-react';
 import { useConnection, useGateway, useRuntime } from '../connections/context';
 import { useAction } from '../components/actions';
+import { ago } from '../components/time';
 import { Button } from '../components/ui/button';
 import { Dialog } from '../components/ui/dialog';
 import { ConfirmButton, ErrorNotice, Field, Loading, Timestamp } from '../components/common';
@@ -452,11 +453,7 @@ function seen(value: string) {
   const minutes = (Date.now() - Date.parse(value)) / 60_000;
   if (!Number.isFinite(minutes)) return 'Not seen';
   if (minutes < 2) return 'Active now';
-  const relative = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' });
-  if (minutes < 60) return relative.format(-Math.round(minutes), 'minute');
-  if (minutes < 24 * 60) return relative.format(-Math.round(minutes / 60), 'hour');
-  if (minutes < 7 * 24 * 60) return relative.format(-Math.round(minutes / (24 * 60)), 'day');
-  return new Date(value).toLocaleDateString();
+  return ago(value) ?? 'Not seen';
 }
 
 function outcomeText(outcome: string) {

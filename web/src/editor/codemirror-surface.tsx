@@ -20,10 +20,17 @@ import {
 import { closeBrackets, closeBracketsKeymap } from '@codemirror/autocomplete';
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search';
 import { languages } from '@codemirror/language-data';
+import {
+  getChunks,
+  getOriginalDoc,
+  goToNextChunk,
+  goToPreviousChunk,
+  unifiedMergeView,
+} from '@codemirror/merge';
 import { tags } from '@lezer/highlight';
 import { useTextZoom } from '../components/text-zoom';
 import type { EditorStore, OpenFile } from './store';
-import type { SurfaceProps } from './surface';
+import type { CompareProps, SurfaceProps } from './surface';
 
 /**
  * The editor on a touch screen: CodeMirror, which selects and types as the system does. Each open
@@ -346,4 +353,104 @@ export function Surface({
   }, [readOnly, file.path]);
 
   return <div ref={host} className="code-surface" data-surface="codemirror" />;
+}
+
+/**
+ * Text over other text, as one, read only: what was taken out shows above what came in, and long
+ * stretches the same are folded away, as a phone has little room.
+ */
+export function Compare({
+  name,
+  original,
+  modified,
+  dark,
+  fontSize,
+  onZoom,
+  controlsRef,
+  onStats,
+}: CompareProps) {
+  const host = useRef<HTMLDivElement>(null);
+  useTextZoom(host, onZoom);
+  const view = useRef<EditorView | undefined>(undefined);
+  const told = useRef(onStats);
+  useEffect(() => {
+    told.current = onStats;
+  });
+  useEffect(() => {
+    if (!controlsRef) return;
+    controlsRef.current = {
+      next: () => void (view.current && goToNextChunk(view.current)),
+      previous: () => void (view.current && goToPreviousChunk(view.current)),
+    };
+    return () => {
+      controlsRef.current = null;
+    };
+  }, [controlsRef]);
+  // Made again only as what it shows changes, not as the file's state does.
+  const store = 'store' in modified ? modified.store : undefined;
+  const file = 'file' in modified ? modified.file : undefined;
+  const path = file?.path;
+  const revision = file?.revision;
+  const text = 'text' in modified ? modified.text : undefined;
+  useLayoutEffect(() => {
+    const element = host.current;
+    if (!element) return;
+    const open = store && path !== undefined ? store.file(path) : undefined;
+    const language = new Compartment();
+    const doc =
+      text ??
+      (path !== undefined ? store?.documents?.text(path, '\n')?.text : undefined) ??
+      open?.text.replaceAll('\r\n', '\n') ??
+      '';
+    const made = new EditorView({
+      parent: element,
+      state: EditorState.create({
+        doc,
+        extensions: [
+          lineNumbers(),
+          highlightSpecialChars(),
+          drawSelection(),
+          EditorView.lineWrapping,
+          EditorState.readOnly.of(true),
+          EditorView.editable.of(false),
+          frame(dark, fontSize),
+          highlighting(dark),
+          language.of([]),
+          unifiedMergeView({
+            original: original.replaceAll('\r\n', '\n'),
+            mergeControls: false,
+            collapseUnchanged: {},
+          }),
+        ],
+      }),
+    });
+    view.current = made;
+    told.current?.(...lineCounts(made.state));
+    let shown = true;
+    void LanguageDescription.matchFilename(languages, name)
+      ?.load()
+      .then((support) => {
+        if (shown) made.dispatch({ effects: language.reconfigure(support) });
+      });
+    return () => {
+      shown = false;
+      view.current = undefined;
+      made.destroy();
+    };
+  }, [store, path, revision, text, name, original, dark, fontSize]);
+  return <div ref={host} className="code-surface" data-surface="codemirror-diff" />;
+}
+
+/** How many lines the document of `state`, a unified merge view's, adds and removes. */
+function lineCounts(state: EditorState): [number, number] {
+  const before = getOriginalDoc(state);
+  const lines = (doc: Text, from: number, to: number) =>
+    to > from ? doc.lineAt(Math.min(to - 1, doc.length)).number - doc.lineAt(from).number + 1 : 0;
+  let added = 0;
+  let removed = 0;
+  for (const chunk of getChunks(state)?.chunks ?? []) {
+    added += lines(state.doc, chunk.fromB, chunk.toB);
+    removed += lines(before, chunk.fromA, chunk.toA);
+  }
+  return [added, removed];
 }

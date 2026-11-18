@@ -10,7 +10,6 @@ import {
 } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import * as Popover from '@radix-ui/react-popover';
 import {
   AtSign,
   ChevronRight,
@@ -24,7 +23,6 @@ import {
   FolderInput,
   FolderPlus,
   FolderRoot,
-  GitBranch,
   House,
   LocateFixed,
   MessageSquarePlus,
@@ -74,8 +72,7 @@ import { pending, Uploads, type UploadBatch, type UploadItem } from '../files/up
 import { droppedItems, pickedFolder, readDropped } from '../files/dropped';
 import { editorStore } from '../editor/use-editor';
 import { useFolderWatches } from '../files/watch';
-import { gitMarks, stronger, type GitMark } from '../files/git';
-import { useToolsFinished } from '../session/hooks';
+import { GIT_STATUS, gitMarks, stronger, type GitMark } from '../files/git';
 import {
   entryRows,
   isFolder,
@@ -88,6 +85,8 @@ import { useSessionNavigation } from './session-navigation';
 import { mentionPath, useWorkspace } from '../components/workspace';
 import { DRAGGED_PATHS, FileTree, type Choosing } from './file-tree';
 import { treeMeasures } from './file-tree-measures';
+import { Branch } from './git-branch';
+import { useGitRefresh } from './git-status';
 import { useDarkTheme } from '../components/theme';
 import { fileIconName, folderIconName, iconUrl } from '../files/icons';
 
@@ -96,9 +95,6 @@ type Listing = Gateway['Listing'];
 type GitStatus = Gateway['GitStatus'];
 
 const LIST = '/api/files/list';
-const GIT_STATUS = '/api/git/status';
-/** How long git is waited on after a change, so a burst of them reads its status once. */
-const GIT_REFRESH_MS = 500;
 
 /** A request from elsewhere to show a folder, and maybe a file in it. */
 export interface FilesTarget {
@@ -351,33 +347,7 @@ export function FileBrowser({
     const gitDir = statuses[index]?.data?.git_dir;
     if (gitDir) gitFolders.set(gitDir, repo);
   });
-  const gitRefresh = useRef<{
-    timer?: ReturnType<typeof setTimeout> | undefined;
-    repos: Set<string>;
-  }>({
-    repos: new Set(),
-  });
-  useEffect(() => {
-    const pending = gitRefresh.current;
-    return () => clearTimeout(pending.timer);
-  }, []);
-  /** Reads the status of `repo` again in a moment, or of every repository shown without one. */
-  function refreshGit(repo?: string) {
-    const pending = gitRefresh.current;
-    pending.repos.add(repo ?? '');
-    if (pending.timer !== undefined) return;
-    pending.timer = setTimeout(() => {
-      pending.timer = undefined;
-      const asked = [...pending.repos];
-      pending.repos.clear();
-      for (const each of asked)
-        void queries.invalidateQueries({
-          queryKey: each
-            ? gatewayKey(device, GIT_STATUS, { repo: each })
-            : ['gateway', device, GIT_STATUS],
-        });
-    }, GIT_REFRESH_MS);
-  }
+  const refreshGit = useGitRefresh(place);
   useFolderWatches([...folders, ...gitFolders.keys()], (path) => {
     const repo = gitFolders.get(path);
     if (repo !== undefined) refreshGit(repo);
@@ -386,15 +356,6 @@ export function FileBrowser({
     const holding = repoOf(path);
     if (holding !== undefined) refreshGit(holding);
   });
-  // As the agent's tool calls finish, it may have changed files in folders not shown.
-  const finished = useToolsFinished(place);
-  const lastFinished = useRef(finished);
-  const toolsFinished = useEffectEvent(() => refreshGit());
-  useEffect(() => {
-    if (finished === lastFinished.current) return;
-    lastFinished.current = finished;
-    if (finished !== undefined) toolsFinished();
-  }, [finished]);
   const refresh = () => void queries.invalidateQueries({ queryKey: ['gateway'] });
   const rows = listed ? treeRows({ root: folder, listings, open, hidden, creating }) : [];
   const shownEntries = entryRows(rows);
@@ -862,75 +823,6 @@ function PathBar({ path, onGo }: { path: string; onGo: (path: string) => void })
         <Pencil size={14} />
       </Button>
     </div>
-  );
-}
-
-/**
- * The branch of the repository Files shows, with the commits it is ahead of its upstream and
- * behind; it opens to say all git says of it, as a touch screen shows no tooltip.
- */
-function Branch({ status }: { status: GitStatus }) {
-  const collisionPadding = useOverlayPadding();
-  const name = status.branch ?? status.commit?.slice(0, 7);
-  if (!name) return null;
-  const ahead = status.ahead ?? 0;
-  const behind = status.behind ?? 0;
-  const counts = [ahead ? `↑${ahead}` : '', behind ? `↓${behind}` : ''].filter(Boolean).join(' ');
-  const upstream = !status.upstream
-    ? 'No upstream'
-    : status.ahead == null
-      ? `${status.upstream} is gone`
-      : ahead && behind
-        ? `${ahead} ahead of ${status.upstream}, ${behind} behind`
-        : ahead
-          ? `${ahead} ahead of ${status.upstream}`
-          : behind
-            ? `${behind} behind ${status.upstream}`
-            : `Up to date with ${status.upstream}`;
-  // A commit checked out on its own follows no branch.
-  const said = [
-    status.branch ? `Branch ${name}` : `Detached at ${name}`,
-    status.branch ? upstream : '',
-    status.too_many ? 'Too many changes to mark' : '',
-  ].filter(Boolean);
-  return (
-    <span className="file-branch-slot">
-      <Popover.Root>
-        <Popover.Trigger asChild>
-          <button type="button" className="file-branch" aria-label={said.join(', ')}>
-            <GitBranch size={14} aria-hidden="true" />
-            <span className="file-branch-name">{name}</span>
-            {counts && <span className="file-branch-counts">{counts}</span>}
-            {status.too_many && (
-              <TriangleAlert size={13} className="file-branch-warning" aria-hidden="true" />
-            )}
-          </button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content
-            className="menu-panel branch-details"
-            align="end"
-            sideOffset={4}
-            collisionPadding={collisionPadding}
-          >
-            <p className="branch-details-name">
-              <GitBranch size={14} aria-hidden="true" />
-              <span>{status.branch ?? `Detached at ${name}`}</span>
-            </p>
-            {status.branch && <p>{upstream}</p>}
-            {status.branch && status.commit && (
-              <p className="muted">At commit {status.commit.slice(0, 7)}</p>
-            )}
-            {status.too_many && (
-              <p className="branch-details-warning">
-                <TriangleAlert size={13} aria-hidden="true" />
-                <span>Too many changes to mark</span>
-              </p>
-            )}
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
-    </span>
   );
 }
 

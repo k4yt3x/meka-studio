@@ -1,4 +1,5 @@
 import { createContext, useContext, useEffect, useRef } from 'react';
+import type { CommitFile } from '../editor/store';
 import type { LineTarget } from '../files/paths';
 
 /**
@@ -10,6 +11,10 @@ export interface Workspace {
   openFiles(path: string, open?: string): void;
   /** Opens the file `path` in the editor, at `lines` if given. */
   openFile(path: string, lines?: LineTarget): void;
+  /** Opens the file `path` in the editor, beside what the last commit of `repo` holds. */
+  openChanges(path: string, repo: string): void;
+  /** Opens `file`, as a commit holds it, in the editor, beside what the commit before held. */
+  openCommitFile(file: CommitFile): void;
   /** The session's working directory, or the folder chosen for a new one. */
   folder: string;
   /** Shows the file `path` in Files, chosen in its folder, without opening it. */

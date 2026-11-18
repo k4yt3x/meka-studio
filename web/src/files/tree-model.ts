@@ -8,13 +8,18 @@ export function isFolder(entry: Entry): boolean {
   return entry.kind === 'folder' || (entry.kind === 'symlink' && entry.target_kind === 'folder');
 }
 
-/** `entries` as the tree shows them: folders first, then by name, numbers by their value. */
+/** How two names are ordered, as the tree orders them: numbers by their value, case aside. */
+export function compareNames(a: string, b: string): number {
+  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+/** `entries` as the tree shows them: folders first, then by name. */
 export function sortEntries(entries: readonly Entry[], hidden: boolean): Entry[] {
   return entries
     .filter((entry) => hidden || !entry.hidden)
     .sort((a, b) => {
       if (isFolder(a) !== isFolder(b)) return isFolder(a) ? -1 : 1;
-      return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+      return compareNames(a.name, b.name);
     });
 }
 

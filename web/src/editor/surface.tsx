@@ -1,4 +1,4 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type RefObject } from 'react';
 import { Loading } from '../components/common';
 import type { EditorStore, OpenFile } from './store';
 
@@ -25,16 +25,33 @@ export interface SurfaceProps {
   onIndentation: (text: string) => void;
 }
 
-/** What comparing a file with what is on disk takes. */
+/** What a comparison shows on its right: an open file, still to edit unless read only, or text. */
+export type Compared = { store: EditorStore; file: OpenFile } | { text: string };
+
+/** Moves through a comparison's changes, while it shows. */
+export interface CompareControls {
+  next(): void;
+  previous(): void;
+}
+
+/** What comparing text with other text takes: the other on the left, see {@link Compared}. */
 export interface CompareProps {
-  store: EditorStore;
-  file: OpenFile;
-  /** What the file holds on disk now. */
-  disk: string;
+  /** The file's name, which says how the two are highlighted. */
+  name: string;
+  original: string;
+  modified: Compared;
+  readOnly: boolean;
   dark: boolean;
   fontSize: number;
   wrap: boolean;
+  /** Whether the two show side by side where there is room, rather than as one column. */
+  sideBySide: boolean;
   onZoom: (step: -1 | 0 | 1) => void;
+  onSave?: (() => void) | undefined;
+  /** Given how to move through the changes, while it shows. */
+  controlsRef?: RefObject<CompareControls | null> | undefined;
+  /** Told how many lines the right adds and removes, as that changes. */
+  onStats?: ((added: number, removed: number) => void) | undefined;
 }
 
 // Each is loaded the first time a file opens: Monaco where there is a mouse, CodeMirror on a touch
@@ -48,6 +65,9 @@ const MonacoCompare = lazy(() =>
 const Touch = lazy(() =>
   import('./codemirror-surface').then((module) => ({ default: module.Surface })),
 );
+const TouchCompare = lazy(() =>
+  import('./codemirror-surface').then((module) => ({ default: module.Compare })),
+);
 
 /** The editor for a text file, as the screen suits: see {@link SurfaceProps}. */
 export function EditorSurface({ touch, ...props }: SurfaceProps & { touch: boolean }) {
@@ -58,11 +78,14 @@ export function EditorSurface({ touch, ...props }: SurfaceProps & { touch: boole
   );
 }
 
-/** A file beside what is on disk now, where the editor can show that: see {@link CompareProps}. */
-export function CompareSurface(props: CompareProps) {
+/**
+ * A file beside other text: see {@link CompareProps}. On a touch screen the two are one, read
+ * only, what was taken out over what came in.
+ */
+export function CompareSurface({ touch, ...props }: CompareProps & { touch: boolean }) {
   return (
     <Suspense fallback={<Loading label="Opening the comparison…" fill />}>
-      <MonacoCompare {...props} />
+      {touch ? <TouchCompare {...props} /> : <MonacoCompare {...props} />}
     </Suspense>
   );
 }

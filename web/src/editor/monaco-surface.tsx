@@ -374,15 +374,33 @@ export function Surface({
 }
 
 /**
- * The file's text beside what is now on disk, the editor's on the right, still to edit; side by
- * side where there is room, else one inline.
+ * Text beside other text, the right still to edit where it is a file not read only; side by side
+ * where there is room and that is asked for, else one inline. Stretches the same fold away.
  */
-export function Compare({ store, file, disk, dark, fontSize, wrap, onZoom }: CompareProps) {
+export function Compare({
+  name,
+  original,
+  modified,
+  readOnly,
+  dark,
+  fontSize,
+  wrap,
+  sideBySide,
+  onZoom,
+  onSave,
+  controlsRef,
+  onStats,
+}: CompareProps) {
   const host = useRef<HTMLDivElement>(null);
   useTextZoom(host, onZoom);
   const editor = useRef<monaco.editor.IStandaloneDiffEditor | undefined>(undefined);
-  const initial = useRef({ fontSize, dark, wrap });
-  registerDocuments(store);
+  const told = useRef({ onSave, onStats });
+  const initial = useRef({ fontSize, dark, wrap, sideBySide });
+  useEffect(() => {
+    told.current = { onSave, onStats };
+  });
+  const store = 'store' in modified ? modified.store : undefined;
+  if (store) registerDocuments(store);
   useTheme(dark);
   useLayoutEffect(() => {
     const element = host.current;
@@ -390,30 +408,78 @@ export function Compare({ store, file, disk, dark, fontSize, wrap, onZoom }: Com
     const made = monaco.editor.createDiffEditor(element, {
       ...options(initial.current.fontSize, initial.current.dark, initial.current.wrap),
       originalEditable: false,
-      renderSideBySide: element.clientWidth > 900,
+      renderSideBySide: initial.current.sideBySide,
+      hideUnchangedRegions: { enabled: true },
+    });
+    made
+      .getModifiedEditor()
+      .addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => told.current.onSave?.());
+    const counted = made.onDidUpdateDiff(() => {
+      let added = 0;
+      let removed = 0;
+      for (const change of made.getLineChanges() ?? []) {
+        // An end of 0 is a side the change has no lines on.
+        if (change.modifiedEndLineNumber)
+          added += change.modifiedEndLineNumber - change.modifiedStartLineNumber + 1;
+        if (change.originalEndLineNumber)
+          removed += change.originalEndLineNumber - change.originalStartLineNumber + 1;
+      }
+      told.current.onStats?.(added, removed);
     });
     editor.current = made;
     const sized = followSize(element, made);
     return () => {
+      counted.dispose();
       sized.disconnect();
       made.dispose();
       editor.current = undefined;
     };
   }, []);
+  useEffect(() => {
+    if (!controlsRef) return;
+    controlsRef.current = {
+      next: () => editor.current?.goToDiff('next'),
+      previous: () => editor.current?.goToDiff('previous'),
+    };
+    return () => {
+      controlsRef.current = null;
+    };
+  }, [controlsRef]);
+  // Made again only for other text or another file: an edit, which changes the file's state, keeps
+  // the editor as it is, focus and all.
+  const path = 'file' in modified ? modified.file.path : undefined;
+  const text = 'text' in modified ? modified.text : undefined;
   useLayoutEffect(() => {
     const made = editor.current;
     if (!made) return;
-    const modified = modelFor(store, file);
-    const original = monaco.editor.createModel(disk, modified.getLanguageId());
-    made.setModel({ original, modified });
+    const open = store && path !== undefined ? store.file(path) : undefined;
+    const left = monaco.editor.createModel(original, 'plaintext');
+    // Text stands apart from any file's model.
+    const right = open ? undefined : monaco.editor.createModel(text ?? '', 'plaintext');
+    void languageFor(name).then((id) => {
+      for (const model of [left, right])
+        if (model && !model.isDisposed()) monaco.editor.setModelLanguage(model, id);
+    });
+    made.setModel({ original: left, modified: open ? modelFor(store!, open) : right! });
     return () => {
       // Gone with the diff editor, which goes first, it holds no models to let go of.
       if (editor.current === made) made.setModel(null);
-      original.dispose();
+      left.dispose();
+      right?.dispose();
     };
-  }, [store, file, disk]);
+  }, [store, path, text, name, original]);
+  // The file's model keeps up with what is read from disk.
+  const file = 'file' in modified ? modified.file : undefined;
+  useLayoutEffect(() => {
+    if (store && file) modelFor(store, file);
+  }, [store, file]);
   useEffect(() => {
-    editor.current?.updateOptions({ fontSize, wordWrap: wrap ? 'on' : 'off' });
-  }, [fontSize, wrap]);
+    editor.current?.updateOptions({
+      fontSize,
+      wordWrap: wrap ? 'on' : 'off',
+      renderSideBySide: sideBySide,
+    });
+    editor.current?.getModifiedEditor().updateOptions({ readOnly: readOnly || !file });
+  }, [fontSize, wrap, sideBySide, readOnly, file]);
   return <div ref={host} className="code-surface" data-surface="monaco-diff" />;
 }

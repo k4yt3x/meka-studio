@@ -12,9 +12,10 @@ export const shortcuts = {
   // Control on macOS too, as Cmd+Shift with a digit takes screenshots there. Browsers take most
   // letters with Ctrl+Shift, such as Firefox's network tools on E.
   toggleFiles: { label: 'Toggle Files', key: '1', code: 'Digit1', ctrl: true, shift: true },
-  toggleContext: { label: 'Toggle Context', key: '2', code: 'Digit2', ctrl: true, shift: true },
-  toggleTasks: { label: 'Toggle Tasks', key: '3', code: 'Digit3', ctrl: true, shift: true },
-  toggleSchedules: { label: 'Toggle Schedules', key: '4', code: 'Digit4', ctrl: true, shift: true },
+  toggleGit: { label: 'Toggle Git', key: '2', code: 'Digit2', ctrl: true, shift: true },
+  toggleContext: { label: 'Toggle Context', key: '3', code: 'Digit3', ctrl: true, shift: true },
+  toggleTasks: { label: 'Toggle Tasks', key: '4', code: 'Digit4', ctrl: true, shift: true },
+  toggleSchedules: { label: 'Toggle Schedules', key: '5', code: 'Digit5', ctrl: true, shift: true },
   showShortcuts: { label: 'Keyboard shortcuts', key: '/', mod: true },
 } satisfies Record<string, { label: string } & Binding>;
 

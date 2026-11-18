@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import * as ContextMenu from '@radix-ui/react-context-menu';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
@@ -6,13 +6,16 @@ import {
   AtSign,
   BookOpen,
   ChevronDown,
+  ChevronUp,
   Code,
+  Columns2,
   Copy,
   Download,
   ExternalLink,
   FilePlus,
   FileQuestion,
   FolderOpen,
+  GitCompareArrows,
   LoaderCircle,
   MoreHorizontal,
   Plus,
@@ -37,13 +40,39 @@ import { focusMessage, mentionPath, useWorkspace } from '../components/workspace
 import { useRuntime, useSettings } from '../connections/context';
 import { EDITOR_FONT } from '../connections/storage';
 import { fileIconName, iconUrl } from '../files/icons';
-import { basename, formatSize, isAbsolute, join, parent, rawUrl, separator } from '../files/paths';
+import {
+  basename,
+  formatSize,
+  isAbsolute,
+  join,
+  parent,
+  rawUrl,
+  relative,
+  separator,
+} from '../files/paths';
 import { useFolderWatches } from '../files/watch';
 import { useEditorStore } from '../editor/use-editor';
-import { CompareSurface, EditorSurface } from '../editor/surface';
-import { terminalOf, terminalTab, type EditorStore, type OpenFile } from '../editor/store';
+import {
+  CompareSurface,
+  EditorSurface,
+  type CompareControls,
+  type CompareProps,
+} from '../editor/surface';
+import {
+  commitOf,
+  commitTab,
+  fileOf,
+  terminalOf,
+  terminalTab,
+  type CommitFile,
+  type EditorStore,
+  type OpenFile,
+} from '../editor/store';
+import { ApiError } from '../api/client';
 import { isProblem, type Gateway, type GatewayClient } from '../api/gateway';
 import { TerminalView } from './terminal-view';
+import { useCommittedText, useGitFile } from './git-status';
+import { LineCounts } from './line-counts';
 
 /**
  * The files and terminals open in a place, such as a session: a tab for each, and the one shown
@@ -122,7 +151,12 @@ export function EditorPane({
   /** What the tab `key` is called. */
   const name = (key: string) => {
     const id = terminalOf(key);
-    return id === undefined ? basename(key) : terminalName(id);
+    const commit = commitOf(key);
+    return id !== undefined
+      ? terminalName(id)
+      : commit
+        ? `${basename(commit.path)} (${commit.commit.slice(0, 7)})`
+        : basename(key);
   };
   /** Closes `keys`, asking first about files with changes not saved; terminals just end. */
   function close(keys: readonly string[]) {
@@ -161,12 +195,15 @@ export function EditorPane({
   function startNewFile() {
     const shown = tabs.active;
     const id = shown === undefined ? undefined : terminalOf(shown);
+    const commit = shown === undefined ? undefined : commitOf(shown);
     const folder =
       (shown === undefined
         ? undefined
-        : id === undefined
-          ? parent(shown)
-          : store.terminal(id)?.cwd) ||
+        : id !== undefined
+          ? store.terminal(id)?.cwd
+          : commit
+            ? parent(join(commit.repo, commit.path))
+            : parent(shown)) ||
       workspace?.folder ||
       '~';
     setNewFile(/[\\/]$/.test(folder) ? folder : folder + separator(folder));
@@ -188,9 +225,17 @@ export function EditorPane({
     </>
   );
   const active = tabs.active ? store.file(tabs.active) : undefined;
+  const activeCommit = tabs.active ? commitOf(tabs.active) : undefined;
   const items = (key: string, { Item, Separator }: MenuParts) => {
     const terminal = terminalOf(key);
-    const path = terminal === undefined ? key : store.terminal(terminal)?.cwd;
+    const commit = commitOf(key);
+    const file = fileOf(key);
+    const path =
+      terminal !== undefined
+        ? store.terminal(terminal)?.cwd
+        : commit
+          ? join(commit.repo, commit.path)
+          : key;
     return (
       <>
         <Item className="menu-item" onSelect={() => close([key])}>
@@ -215,21 +260,21 @@ export function EditorPane({
             <span className="menu-item-hint">{shortcutHint('newTerminal')}</span>
           </Item>
         )}
-        {terminal === undefined && workspace && (
-          <Item className="menu-item" onSelect={() => workspace.mention(mentionPath(key))}>
+        {file !== undefined && workspace && (
+          <Item className="menu-item" onSelect={() => workspace.mention(mentionPath(file))}>
             <AtSign size={14} />
             Mention in message
           </Item>
         )}
-        {terminal === undefined && workspace && (
-          <Item className="menu-item" onSelect={() => workspace.showFile(key)}>
+        {terminal === undefined && path && workspace && (
+          <Item className="menu-item" onSelect={() => workspace.showFile(path)}>
             <FolderOpen size={14} />
             Show in Files
           </Item>
         )}
-        {terminal === undefined && (
+        {file !== undefined && (
           <Item className="menu-item" asChild>
-            <a href={rawUrl(key, true)} download>
+            <a href={rawUrl(file, true)} download>
               <Download size={14} />
               Download
             </a>
@@ -377,6 +422,16 @@ export function EditorPane({
           onZoom={zoomBy}
         />
       )}
+      {activeCommit && (
+        <CommitBody
+          key={tabs.active}
+          store={store}
+          commit={activeCommit}
+          items={items}
+          fontSize={fontSize}
+          onZoom={zoomBy}
+        />
+      )}
       {newFile !== undefined && (
         <NewFileDialog
           start={newFile}
@@ -430,6 +485,7 @@ function Tab({
   const dark = useDarkTheme();
   const collisionPadding = useOverlayPadding();
   const terminal = terminalOf(tab);
+  const commit = commitOf(tab);
   const file = store.file(tab);
   return (
     <ContextMenu.Root modal={false}>
@@ -440,7 +496,18 @@ function Tab({
           data-selected={selected || undefined}
           data-dirty={file?.dirty || undefined}
           data-deleted={file?.deleted || undefined}
-          title={terminal === undefined ? tab : store.terminal(terminal)?.cwd}
+          title={
+            terminal !== undefined
+              ? store.terminal(terminal)?.cwd
+              : commit
+                ? `${commit.path} at ${commit.commit.slice(0, 7)}`
+                : tab
+          }
+          onMouseDown={(event) => {
+            // Pressed over tabs too many to fit, the middle button would start the browser's own
+            // scrolling, and the click that closes the tab would never come.
+            if (event.button === 1) event.preventDefault();
+          }}
           onAuxClick={(event) => {
             // A middle click closes it, as in a browser's tabs.
             if (event.button === 1) {
@@ -457,7 +524,11 @@ function Tab({
             onClick={onShow}
           >
             {terminal === undefined ? (
-              <img src={iconUrl(fileIconName(name), dark)} alt="" draggable={false} />
+              <img
+                src={iconUrl(fileIconName(commit ? basename(commit.path) : name), dark)}
+                alt=""
+                draggable={false}
+              />
             ) : (
               <SquareTerminal size={15} aria-hidden="true" />
             )}
@@ -654,8 +725,10 @@ function EditorBody({
   const touch = store.documents ? store.documents.touch : coarse;
   const dark = useDarkTheme();
   const runtime = useRuntime();
-  const { editorWordWrap: wrap } = useSettings();
+  const { editorWordWrap: wrap, compareSideBySide } = useSettings();
   const [cursor, setCursor] = useState<{ line: number; column: number }>();
+  const [stats, setStats] = useState<[number, number]>();
+  const controlsRef = useRef<CompareControls | null>(null);
   const [highlighted, setHighlighted] = useState<string>();
   const [indentation, setIndentation] = useState<string>();
   const [comparing, setComparing] = useState(false);
@@ -665,7 +738,19 @@ function EditorBody({
   const text = file.kind === 'text' && file.state === 'ready';
   const conflict = file.conflict;
   const showCompare = comparing && conflict?.kind === 'changed' && !touch;
+  // Shown beside the last commit, the file is in this repository.
+  const changesIn = store.changesOf(file.path);
+  const git = useGitFile(file.path, changesIn);
+  // A file deleted since the last commit shows as all taken out.
+  const gone =
+    changesIn !== undefined &&
+    file.state === 'failed' &&
+    file.error instanceof ApiError &&
+    file.error.status === 404;
+  const showsComparison = gone || (text && !previewing && (showCompare || changesIn !== undefined));
+  if (!showsComparison && stats) setStats(undefined);
   const toggleWrap = () => runtime.storage.editorWordWrap(!wrap);
+  const save = () => void store.save(file.path);
   // A file put back after a reload is read as it shows.
   useEffect(() => store.wake(file.path), [store, file.path]);
   const bar = (
@@ -678,6 +763,21 @@ function EditorBody({
         <Button size="sm" variant="ghost" onClick={() => setPreviewing(!previewing)}>
           {previewing ? <Code size={14} /> : <BookOpen size={14} />}
           {previewing ? 'Edit' : 'Preview'}
+        </Button>
+      )}
+      {showsComparison && <CompareTools stats={stats} controlsRef={controlsRef} touch={touch} />}
+      {(changesIn !== undefined || (text && git.change)) && (
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label="Changes since the last commit"
+          aria-pressed={changesIn !== undefined}
+          title="Changes since the last commit"
+          onClick={() =>
+            store.showChanges(file.path, changesIn === undefined ? git.repo : undefined)
+          }
+        >
+          <GitCompareArrows size={15} />
         </Button>
       )}
       {/* A touch screen's editor always wraps. */}
@@ -702,7 +802,7 @@ function EditorBody({
           aria-busy={file.saving}
           disabled={!file.dirty || file.saving || readOnly}
           title={`Save (${appleKeyboard() ? '⌘S' : 'Ctrl+S'})`}
-          onClick={() => void store.save(file.path)}
+          onClick={save}
         >
           {file.saving ? <LoaderCircle size={15} className="spin" /> : <Save size={15} />}
         </Button>
@@ -715,6 +815,30 @@ function EditorBody({
       <>
         {bar}
         <Loading label={`Opening ${file.name}…`} fill />
+      </>
+    );
+  const compare = {
+    name: file.name,
+    modified: { store, file },
+    readOnly,
+    dark,
+    fontSize,
+    wrap,
+    sideBySide: compareSideBySide,
+    onZoom,
+    onSave: save,
+    controlsRef,
+    onStats: (added: number, removed: number) =>
+      setStats((before) =>
+        before?.[0] === added && before[1] === removed ? before : [added, removed],
+      ),
+    touch,
+  };
+  if (gone)
+    return (
+      <>
+        {bar}
+        <ChangesView {...compare} modified={{ text: '' }} file={file} git={git} />
       </>
     );
   if (file.state === 'failed')
@@ -785,15 +909,9 @@ function EditorBody({
           />
         </div>
       ) : showCompare ? (
-        <CompareSurface
-          store={store}
-          file={file}
-          disk={conflict.text}
-          dark={dark}
-          fontSize={fontSize}
-          wrap={wrap}
-          onZoom={onZoom}
-        />
+        <CompareSurface {...compare} original={conflict.text} />
+      ) : changesIn !== undefined ? (
+        <ChangesView {...compare} file={file} git={git} />
       ) : (
         <EditorSurface
           touch={touch}
@@ -806,7 +924,7 @@ function EditorBody({
           wrap={wrap}
           onZoom={onZoom}
           onWrap={toggleWrap}
-          onSave={() => void store.save(file.path)}
+          onSave={save}
           onLanguage={setHighlighted}
           onIndentation={setIndentation}
           onCursor={(line, column) =>
@@ -830,6 +948,178 @@ function EditorBody({
         <span>{file.eol === '\r\n' ? 'CRLF' : 'LF'}</span>
         {highlighted && <span>{highlighted}</span>}
       </div>
+    </>
+  );
+}
+
+/**
+ * The file beside what the last commit of its repository holds there, or where it was then, if it
+ * was renamed since; a file the commit has none of, as one new since, beside nothing.
+ */
+function ChangesView({
+  git,
+  file,
+  ...compare
+}: Omit<CompareProps, 'original'> & {
+  touch: boolean;
+  git: ReturnType<typeof useGitFile>;
+  file: OpenFile;
+}) {
+  const repo = git.repo ?? '';
+  const committed = useCommittedText(
+    repo,
+    git.status.data?.commit ?? undefined,
+    git.change?.from ?? relative(file.path, repo),
+  );
+  return (
+    <CommittedCompare
+      {...compare}
+      error={git.status.error ?? committed.error}
+      original={git.status.data ? committed.text : undefined}
+      notText={committed.binary}
+      tooLarge={committed.tooLarge || (file.truncated && file.version === null)}
+    />
+  );
+}
+
+/**
+ * A comparison with what a commit holds, once it is read: what kept it from being read, or why it
+ * cannot be compared, in its place.
+ */
+function CommittedCompare({
+  error,
+  original,
+  notText,
+  tooLarge,
+  ...compare
+}: Omit<CompareProps, 'original'> & {
+  touch: boolean;
+  error: unknown;
+  /** None while it is read. */
+  original: string | undefined;
+  notText: boolean;
+  tooLarge: boolean;
+}) {
+  if (error)
+    return (
+      <div className="code-empty">
+        <ErrorNotice error={error} />
+      </div>
+    );
+  if (notText || tooLarge)
+    return (
+      <div className="code-empty">
+        <FileQuestion size={28} aria-hidden="true" />
+        <p>{tooLarge ? 'Too large to compare.' : 'Not text, to compare.'}</p>
+      </div>
+    );
+  if (original === undefined) return <Loading label="Reading the commit…" fill />;
+  return <CompareSurface {...compare} original={original} />;
+}
+
+/** A comparison's lines added and removed, and the buttons that move through its changes. */
+function CompareTools({
+  stats,
+  controlsRef,
+  touch,
+}: {
+  stats: [number, number] | undefined;
+  controlsRef: RefObject<CompareControls | null>;
+  touch: boolean;
+}) {
+  const runtime = useRuntime();
+  const { compareSideBySide } = useSettings();
+  return (
+    <>
+      {stats && <LineCounts added={stats[0]} removed={stats[1]} />}
+      <Button
+        size="icon"
+        variant="ghost"
+        aria-label="Previous change"
+        title="Previous change"
+        onClick={() => controlsRef.current?.previous()}
+      >
+        <ChevronUp size={15} />
+      </Button>
+      <Button
+        size="icon"
+        variant="ghost"
+        aria-label="Next change"
+        title="Next change"
+        onClick={() => controlsRef.current?.next()}
+      >
+        <ChevronDown size={15} />
+      </Button>
+      {/* A touch screen's comparison is always one column. */}
+      {!touch && (
+        <Button
+          size="icon"
+          variant="ghost"
+          aria-label="Side by side"
+          aria-pressed={compareSideBySide}
+          title="Side by side"
+          onClick={() => runtime.storage.compareSideBySide(!compareSideBySide)}
+        >
+          <Columns2 size={15} />
+        </Button>
+      )}
+    </>
+  );
+}
+
+/** A file as a commit holds it, beside what the commit before it held there, to read. */
+function CommitBody({
+  store,
+  commit,
+  items,
+  fontSize,
+  onZoom,
+}: {
+  store: EditorStore;
+  commit: CommitFile;
+  items: (key: string, parts: MenuParts) => ReactNode;
+  fontSize: number;
+  onZoom: (step: -1 | 0 | 1) => void;
+}) {
+  const coarse = useMediaQuery('(pointer: coarse)');
+  const touch = store.documents ? store.documents.touch : coarse;
+  const dark = useDarkTheme();
+  const { editorWordWrap: wrap, compareSideBySide } = useSettings();
+  const [stats, setStats] = useState<[number, number]>();
+  const controlsRef = useRef<CompareControls | null>(null);
+  const before = useCommittedText(
+    commit.repo,
+    commit.parent ?? undefined,
+    commit.from ?? commit.path,
+  );
+  const after = useCommittedText(commit.repo, commit.commit, commit.path);
+  const name = basename(commit.path);
+  return (
+    <>
+      <div className="code-file-bar">
+        <span className="code-file-path" title={`${commit.path} at ${commit.commit}`}>
+          {`\u200e${commit.path}\u200e`}
+        </span>
+        <CompareTools stats={stats} controlsRef={controlsRef} touch={touch} />
+        <MoreMenu label={`More for ${name}`}>{items(commitTab(commit), DropdownMenu)}</MoreMenu>
+      </div>
+      <CommittedCompare
+        name={name}
+        original={after.text === undefined ? undefined : before.text}
+        modified={{ text: after.text ?? '' }}
+        readOnly
+        dark={dark}
+        fontSize={fontSize}
+        wrap={wrap}
+        sideBySide={compareSideBySide}
+        onZoom={onZoom}
+        controlsRef={controlsRef}
+        onStats={(added, removed) => setStats([added, removed])}
+        touch={touch}
+        error={before.error ?? after.error}
+        notText={before.binary || after.binary}
+        tooLarge={before.tooLarge || after.tooLarge}
+      />
     </>
   );
 }

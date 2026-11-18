@@ -4,6 +4,11 @@ import { relative } from './paths';
 type GitStatus = Gateway['GitStatus'];
 export type ChangeKind = Gateway['ChangeKind'];
 
+/** Where a repository's status is read, by its folder. */
+export const GIT_STATUS = '/api/git/status';
+/** Where a file is read as a commit holds it. */
+export const GIT_FILE = '/api/git/file';
+
 /** What git says of an entry, as the tree marks it. */
 export interface GitMark {
   kind: ChangeKind;
@@ -31,10 +36,18 @@ export function stronger(a: GitMark | undefined, b: GitMark | undefined): GitMar
   return RANK[b.kind] > RANK[a.kind] ? b : a;
 }
 
+/** How a file changed since the last commit, and where it was then, if it was renamed. */
+export interface FileChange {
+  kind: Exclude<ChangeKind, 'ignored'>;
+  from?: string | undefined;
+}
+
 /** The marks for a repository's entries. */
 export interface GitMarks {
   /** The mark for the entry at `path`, absolute, a folder or not; none for one unchanged. */
   get(path: string, folder: boolean): GitMark | undefined;
+  /** How the file at `path`, absolute, changed; none for one unchanged or ignored. */
+  change(path: string): FileChange | undefined;
 }
 
 const made = new WeakMap<GitStatus, GitMarks>();
@@ -53,6 +66,8 @@ export function gitMarks(status: GitStatus): GitMarks {
   const whole = new Map<string, ChangeKind>();
   /** Each folder holding changes, and the strongest of them; the repository's own is ''. */
   const holding = new Map<string, ChangeKind>();
+  /** Where each file renamed was, by its path in the repository. */
+  const renamed = new Map<string, string>();
   const keep = (map: Map<string, ChangeKind>, path: string, kind: ChangeKind) => {
     const old = map.get(path);
     if (old === undefined || RANK[kind] > RANK[old]) map.set(path, kind);
@@ -72,23 +87,32 @@ export function gitMarks(status: GitStatus): GitMarks {
       keep(files, change.path, change.kind);
       above(change.path, change.kind);
     }
-    if (change.from) above(change.from, 'deleted');
+    if (change.from) {
+      above(change.from, 'deleted');
+      renamed.set(change.path, change.from);
+    }
   }
+  const get = (path: string, folder: boolean): GitMark | undefined => {
+    const at = relative(path, status.repo);
+    if (at === undefined) return undefined;
+    // Within a folder new or ignored as a whole, the nearest says.
+    for (let end = at.length; end > 0; end = at.lastIndexOf('/', end - 1)) {
+      const kind = whole.get(at.slice(0, end));
+      if (kind) return { kind, own: true };
+    }
+    const own = files.get(at);
+    const held = folder ? holding.get(at) : undefined;
+    return stronger(
+      own && { kind: own, own: true },
+      held === undefined ? undefined : { kind: held, own: false },
+    );
+  };
   const marks: GitMarks = {
-    get(path, folder) {
-      const at = relative(path, status.repo);
-      if (at === undefined) return undefined;
-      // Within a folder new or ignored as a whole, the nearest says.
-      for (let end = at.length; end > 0; end = at.lastIndexOf('/', end - 1)) {
-        const kind = whole.get(at.slice(0, end));
-        if (kind) return { kind, own: true };
-      }
-      const own = files.get(at);
-      const held = folder ? holding.get(at) : undefined;
-      return stronger(
-        own && { kind: own, own: true },
-        held === undefined ? undefined : { kind: held, own: false },
-      );
+    get,
+    change(path) {
+      const kind = get(path, false)?.kind;
+      if (kind === undefined || kind === 'ignored') return undefined;
+      return { kind, from: renamed.get(relative(path, status.repo) ?? '') };
     },
   };
   made.set(status, marks);
