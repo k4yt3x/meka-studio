@@ -63,24 +63,42 @@ export interface Documents {
 /**
  * The tabs of one place, such as a session, in order: a file's by its path, a terminal's by
  * {@link terminalTab}, and a file as a commit holds it by {@link commitTab}. With them, the one
- * shown, and every one by when it was last shown.
+ * shown, every one by when it was last shown, and the preview tab, if there is one.
  */
 export interface Tabs {
   keys: readonly string[];
   active: string | undefined;
   /** The tabs, the one shown last first. */
   used: readonly string[];
+  /**
+   * The tab opened only to look at, which the next one opened so takes the place of, until it is
+   * kept open: by opening it to keep, or by editing it.
+   */
+  preview?: string | undefined;
 }
 
 const noTabs: Tabs = { keys: [], active: undefined, used: [] };
 
+/** How a tab opens: at `lines`, for a file, and with `preview`, as the place's preview tab. */
+export interface Opening {
+  lines?: LineTarget | undefined;
+  preview?: boolean | undefined;
+}
+
+/** A place's tabs, as kept for a reload. */
+export interface KeptTabs {
+  tabs: readonly string[];
+  active?: string | undefined;
+  preview?: string | undefined;
+}
+
 /**
- * Where the page keeps, for a reload to put them back, each place's tabs and the one shown, and
- * where in each file the editor was.
+ * Where the page keeps, for a reload to put them back, each place's tabs, the one shown and the
+ * preview tab, and where in each file the editor was.
  */
 export interface Kept {
-  read(place: string): { tabs: readonly string[]; active?: string | undefined } | undefined;
-  write(place: string, tabs: readonly string[], active: string | undefined): void;
+  read(place: string): KeptTabs | undefined;
+  write(place: string, tabs: KeptTabs): void;
   /** Lets go of what `places`, as sessions deleted, had open. */
   forget(places: readonly string[]): void;
   view(path: string): unknown;
@@ -219,11 +237,11 @@ export class EditorStore {
   private keepTabs() {
     if (!this.kept) return;
     for (const [place, kept] of this.keeping) {
-      const { keys, active } = this.tabs(place);
-      const now = JSON.stringify([keys, active ?? null]);
+      const { keys, active, preview } = this.tabs(place);
+      const now = JSON.stringify([keys, active ?? null, preview ?? null]);
       if (now === kept) continue;
       this.keeping.set(place, now);
-      this.kept.write(place, keys, active);
+      this.kept.write(place, { tabs: keys, active, preview });
     }
   }
 
@@ -262,11 +280,14 @@ export class EditorStore {
     const keys = [...back, ...tabs.keys.filter((key) => !back.includes(key))];
     const active =
       tabs.active ?? (saved.active && keys.includes(saved.active) ? saved.active : keys[0]);
+    const preview =
+      tabs.preview ?? (saved.preview && keys.includes(saved.preview) ? saved.preview : undefined);
     if (keys.length)
       this.places.set(place, {
         keys,
         active,
         used: active ? [active, ...keys.filter((key) => key !== active)] : keys,
+        preview,
       });
     this.emit();
   }
@@ -368,18 +389,41 @@ export class EditorStore {
     this.emit();
   }
 
-  /** Shows the tab `key` in `place`, adding it after the tab shown if it is not there. */
-  private insert(place: string, key: string) {
+  /**
+   * Shows the tab `key` in `place`. One not there is added after the tab shown, or with `preview`,
+   * in the preview tab's place, which it then is; a file with changes not saved is never one. One
+   * there already shows as it is, unless, opened not to preview, it is the preview tab, which it
+   * then stops being.
+   */
+  private insert(place: string, key: string, preview = false) {
     const tabs = this.tabs(place);
     const keys = [...tabs.keys];
-    if (!keys.includes(key))
-      keys.splice(tabs.active ? keys.indexOf(tabs.active) + 1 : keys.length, 0, key);
+    let previewing = tabs.preview;
+    let replaced: string | undefined;
+    if (!keys.includes(key)) {
+      const kept = !preview || this.files.get(key)?.dirty;
+      if (!kept && previewing !== undefined) {
+        replaced = previewing;
+        keys.splice(keys.indexOf(previewing), 1, key);
+      } else keys.splice(tabs.active ? keys.indexOf(tabs.active) + 1 : keys.length, 0, key);
+      if (!kept) previewing = key;
+    } else if (!preview && previewing === key) previewing = undefined;
     this.places.set(place, {
       keys,
       active: key,
-      used: [key, ...tabs.used.filter((k) => k !== key)],
+      used: [key, ...tabs.used.filter((each) => each !== key && each !== replaced)],
+      preview: previewing,
     });
     this.ask(key);
+    if (replaced !== undefined) this.release([replaced]);
+  }
+
+  /** Keeps the preview tab `key` of `place` open: the next one opened to preview takes another. */
+  keepOpen(place: string, key: string) {
+    const tabs = this.tabs(place);
+    if (tabs.preview !== key) return;
+    this.places.set(place, { ...tabs, preview: undefined });
+    this.emit();
   }
 
   private ask(key: string) {
@@ -388,14 +432,14 @@ export class EditorStore {
   }
 
   /**
-   * Opens `path` in `place`, after the tab shown, and shows it to edit, at `lines` if given, rather
-   * than beside the last commit.
+   * Opens `path` in `place`, after the tab shown or as its preview tab, as `how` says, and shows it
+   * to edit, at the lines it gives, rather than beside the last commit.
    */
-  open(place: string, path: string, lines?: LineTarget) {
-    if (lines) this.lines.set(path, lines);
+  open(place: string, path: string, how: Opening = {}) {
+    if (how.lines) this.lines.set(path, how.lines);
     else this.lines.delete(path);
     this.changes.delete(path);
-    this.insert(place, path);
+    this.insert(place, path, how.preview);
     if (this.add(path) && this.files.get(path)?.state === 'loading') void this.load(path);
     this.emit();
   }
@@ -404,8 +448,8 @@ export class EditorStore {
    * Opens `path` in `place`, as {@link open} does, beside what the last commit of the repository
    * `repo` holds.
    */
-  openChanges(place: string, path: string, repo: string) {
-    this.open(place, path);
+  openChanges(place: string, path: string, repo: string, how: Opening = {}) {
+    this.open(place, path, how);
     this.changes.set(path, repo);
     this.emit();
   }
@@ -513,14 +557,18 @@ export class EditorStore {
         keys: tabs.keys.map(follow),
         active: tabs.active === undefined ? undefined : follow(tabs.active),
         used: tabs.used.map(follow),
+        preview: tabs.preview === undefined ? undefined : follow(tabs.preview),
       });
     if (this.focusing !== undefined) this.focusing = follow(this.focusing);
     this.emit();
   }
 
-  /** Opens a tab for `file`, as a commit holds it, in `place`, after the tab shown, and shows it. */
-  openCommitFile(place: string, file: CommitFile) {
-    this.insert(place, commitTab(file));
+  /**
+   * Opens a tab for `file`, as a commit holds it, in `place`, after the tab shown or, with
+   * `preview`, as its preview tab, and shows it.
+   */
+  openCommitFile(place: string, file: CommitFile, { preview }: Pick<Opening, 'preview'> = {}) {
+    this.insert(place, commitTab(file), preview);
     this.emit();
   }
 
@@ -543,6 +591,7 @@ export class EditorStore {
       .filter((key) => !tabs.keys.includes(key));
     if (!added.length) return;
     this.places.set(place, {
+      ...tabs,
       keys: [...tabs.keys, ...added],
       active: tabs.active ?? added[0],
       used: [...tabs.used, ...added],
@@ -581,8 +630,19 @@ export class EditorStore {
         keys: left,
         active,
         used: active ? [active, ...used.filter((key) => key !== active)] : used,
+        preview:
+          tabs.preview !== undefined && left.includes(tabs.preview) ? tabs.preview : undefined,
       });
     else this.places.delete(place);
+    this.release(keys);
+    this.emit();
+  }
+
+  /**
+   * Lets go of what the tabs `keys`, no longer in a place, were of, where no other place has them
+   * open: a file and its changes, or a terminal, whose shell is for whoever closed it to end.
+   */
+  private release(keys: readonly string[]) {
     for (const key of keys) {
       if ([...this.places.values()].some((other) => other.keys.includes(key))) continue;
       const terminal = terminalOf(key);
@@ -599,7 +659,6 @@ export class EditorStore {
       this.changes.delete(key);
       this.documents?.drop(key);
     }
-    this.emit();
   }
 
   /** Reads the text file `path`, to edit; on reading it again, what changed on disk shows. */
@@ -700,6 +759,10 @@ export class EditorStore {
   setDirty(path: string, dirty: boolean) {
     const file = this.files.get(path);
     if (!file || file.dirty === dirty) return;
+    // Edited, a preview tab is kept open.
+    if (dirty)
+      for (const [place, tabs] of this.places)
+        if (tabs.preview === path) this.places.set(place, { ...tabs, preview: undefined });
     this.update(path, { dirty });
   }
 

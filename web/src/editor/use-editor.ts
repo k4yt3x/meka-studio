@@ -33,7 +33,7 @@ export function editorStore(runtime: ConnectionRuntime): EditorStore {
     // Each place's tabs, and where each file was, are kept in this browser for a reload.
     const made = new EditorStore(runtime.gateway, {
       read: (place) => runtime.storage.workspace(place),
-      write: (place, tabs, active) => runtime.storage.saveWorkspace(place, { tabs, active }),
+      write: (place, tabs) => runtime.storage.saveWorkspace(place, tabs),
       forget: (places) => runtime.storage.forgetWorkspaces(places),
       view: (path) => runtime.storage.editorView(path),
       writeView: (path, view) => runtime.storage.saveEditorView(path, view),

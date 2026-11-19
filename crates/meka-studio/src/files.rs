@@ -226,6 +226,32 @@ fn open_folder(path: &Path) -> Result<Folder, FilesError> {
     Folder::open(path).map_err(|error| FilesError::io(error, &shown(path)))
 }
 
+/// The folders every other is within: on Windows, the root of each drive with a letter, `C:\`,
+/// mapped network drives among them, though not shares only a path names, `\\server\share`;
+/// elsewhere, `/`.
+pub(crate) fn roots() -> Result<Vec<String>, FilesError> {
+    #[cfg(windows)]
+    {
+        // SAFETY: it takes nothing and only returns a mask.
+        let mask = unsafe { windows_sys::Win32::Storage::FileSystem::GetLogicalDrives() };
+        if mask == 0 {
+            return Err(FilesError::Io(std::io::Error::last_os_error()));
+        }
+        Ok(drive_roots(mask))
+    }
+    #[cfg(not(windows))]
+    Ok(vec!["/".to_owned()])
+}
+
+/// The roots of the drives `mask` has a bit for, its lowest `A:`.
+#[cfg(any(windows, test))]
+fn drive_roots(mask: u32) -> Vec<String> {
+    (b'A'..=b'Z')
+        .filter(|letter| mask & (1 << (letter - b'A')) != 0)
+        .map(|letter| format!(r"{}:\", char::from(letter)))
+        .collect()
+}
+
 /// Names Windows keeps for devices, with or without an extension.
 #[cfg(windows)]
 const DEVICE_NAMES: &[&str] = &[
@@ -1810,6 +1836,14 @@ mod tests {
             remove_tree(&parent, OsStr::new("tree")),
             Err(FilesError::Refused(_))
         ));
+    }
+
+    #[test]
+    fn drives_are_named_by_their_bits() {
+        assert_eq!(drive_roots(0b101), [r"A:\", r"C:\"]);
+        assert_eq!(drive_roots((1 << 25) | (1 << 26)), [r"Z:\"]);
+        #[cfg(not(windows))]
+        assert_eq!(roots().unwrap(), ["/"]);
     }
 
     #[test]

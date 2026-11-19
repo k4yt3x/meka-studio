@@ -185,6 +185,18 @@ fn path(path: &str) -> Result<std::path::PathBuf, ApiError> {
     Ok(resolve(path)?)
 }
 
+/// The folders every other is within: on Windows, the root of each drive with a letter, `C:\`,
+/// mapped network drives among them; elsewhere, `/` alone.
+#[utoipa::path(
+    get,
+    path = "/api/files/roots",
+    tag = "files",
+    responses((status = 200, body = Vec<String>))
+)]
+pub(crate) async fn roots(_signed: Signed) -> ApiResult<Json<Vec<String>>> {
+    Ok(Json(crate::files::roots()?))
+}
+
 #[utoipa::path(
     get,
     path = "/api/files/list",

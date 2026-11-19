@@ -321,12 +321,16 @@ function ChangesList({
                 dark={dark}
                 current={join(repo, changePath(row.change)) === shown}
                 onStage={(staged) => writes.stage([row.change], staged)}
-                onCompare={(path) =>
+                onCompare={(path, how) =>
                   workspace
-                    ? workspace.openChanges(path, repo)
-                    : store.openChanges(place, path, repo)
+                    ? workspace.openChanges(path, repo, how)
+                    : store.openChanges(place, path, repo, how)
                 }
-                onOpen={(path) => (workspace ? workspace.openFile(path) : store.open(place, path))}
+                onOpen={(path) =>
+                  workspace
+                    ? workspace.openFile(path, { preview: true })
+                    : store.open(place, path, { preview: true })
+                }
                 onShow={(path) => workspace?.showFile(path)}
               />
             ),
@@ -432,7 +436,8 @@ function ChangeEntry({
   /** Whether the editor shows it beside the last commit. */
   current: boolean;
   onStage: (staged: boolean) => void;
-  onCompare: (path: string) => void;
+  /** Opens the file at `path` beside the last commit: to look at, with `preview`, or to keep. */
+  onCompare: (path: string, how: { preview: boolean }) => void;
   onOpen: (path: string) => void;
   onShow: (path: string) => void;
 }) {
@@ -452,7 +457,10 @@ function ChangeEntry({
         className="changes-entry"
         aria-current={current || undefined}
         title={`${changePath(change)}\n${change.from ? `Renamed from ${change.from}` : words}${folder ? '\nShow in Files' : ''}`}
-        onClick={() => (folder ? onShow(path) : onCompare(path))}
+        onClick={() => (folder ? onShow(path) : onCompare(path, { preview: true }))}
+        onDoubleClick={() => {
+          if (!folder) onCompare(path, { preview: false });
+        }}
       >
         {/* Under a folder's arrow, as Files' entries are. */}
         {!flat && <span className="file-tree-twisty" aria-hidden="true" />}
@@ -667,21 +675,21 @@ function CommitFiles({ repo, commit }: { repo: string; commit: Gateway['Commit']
             const slash = file.path.lastIndexOf('/');
             const name = file.path.slice(slash + 1);
             const words = markWords({ kind: file.kind, own: true }, false);
+            const opened = {
+              repo,
+              commit: commit.id,
+              parent: commit.parents[0] ?? null,
+              path: file.path,
+              from: file.from ?? null,
+            };
             return (
               <li key={file.path} className="file-tree-row changes-row" data-git={file.kind}>
                 <button
                   type="button"
                   className="changes-entry"
                   title={`${file.path}\n${file.from ? `Renamed from ${file.from}` : words}`}
-                  onClick={() =>
-                    workspace?.openCommitFile({
-                      repo,
-                      commit: commit.id,
-                      parent: commit.parents[0] ?? null,
-                      path: file.path,
-                      from: file.from ?? null,
-                    })
-                  }
+                  onClick={() => workspace?.openCommitFile(opened, { preview: true })}
+                  onDoubleClick={() => workspace?.openCommitFile(opened, { preview: false })}
                 >
                   <img
                     className="file-tree-icon"

@@ -11,6 +11,7 @@ import {
   type CommitFile,
   type Documents,
   type Kept,
+  type KeptTabs,
 } from './store';
 
 /** A file on a stand-in disk, as the gateway reads and saves it. */
@@ -107,13 +108,13 @@ describe('editor store', () => {
 
   it('hands the lines a file was opened at to its editor once', () => {
     const { store } = setup({ '/w/a.ts': { text: 'a', version: 'v0' } });
-    store.open('s', '/w/a.ts', { line: 3, end: 5 });
+    store.open('s', '/w/a.ts', { lines: { line: 3, end: 5 } });
     expect(store.takeLines('/w/a.ts')).toEqual({ line: 3, end: 5 });
     expect(store.takeLines('/w/a.ts')).toBeUndefined();
-    store.open('s', '/w/a.ts', { line: 9 });
+    store.open('s', '/w/a.ts', { lines: { line: 9 } });
     store.open('s', '/w/a.ts');
     expect(store.takeLines('/w/a.ts')).toBeUndefined();
-    store.open('s', '/w/a.ts', { line: 2 });
+    store.open('s', '/w/a.ts', { lines: { line: 2 } });
     store.moved('/w/a.ts', '/w/b.ts');
     expect(store.takeLines('/w/b.ts')).toEqual({ line: 2 });
   });
@@ -232,6 +233,75 @@ describe('editor store', () => {
     store.openChanges('s', '/v/a.ts', '/v');
     store.close('s', ['/v/a.ts']);
     expect(store.changesOf('/v/a.ts')).toBeUndefined();
+  });
+
+  it('opens a file to look at as the preview tab, which the next takes the place of until kept', async () => {
+    const disk: Disk = {};
+    for (const name of ['a', 'b', 'c', 'd', 'e'])
+      disk[`/w/${name}.ts`] = { text: name, version: 'v0' };
+    const { store, documents } = setup(disk);
+    store.open('s', '/w/a.ts');
+    store.open('s', '/w/b.ts', { preview: true });
+    // A terminal started elsewhere gets its tab beside them, the preview tab staying one.
+    store.addTerminals('s', [shell('t1')]);
+    store.close('s', [terminalTab('t1')]);
+    expect(store.tabs('s')).toMatchObject({ keys: ['/w/a.ts', '/w/b.ts'], preview: '/w/b.ts' });
+    store.open('s', '/w/c.ts', { preview: true });
+    expect(store.tabs('s')).toMatchObject({
+      keys: ['/w/a.ts', '/w/c.ts'],
+      active: '/w/c.ts',
+      used: ['/w/c.ts', '/w/a.ts'],
+      preview: '/w/c.ts',
+    });
+    expect(store.file('/w/b.ts')).toBeUndefined();
+    expect(documents.drop).toHaveBeenCalledWith('/w/b.ts');
+    // Shown again to look at, it stays the preview; opened to keep, it is kept.
+    store.show('s', '/w/a.ts');
+    store.open('s', '/w/c.ts', { preview: true });
+    expect(store.tabs('s').preview).toBe('/w/c.ts');
+    store.open('s', '/w/c.ts');
+    expect(store.tabs('s').preview).toBeUndefined();
+    // Edited, it is kept too.
+    store.open('s', '/w/d.ts', { preview: true });
+    expect(store.tabs('s').keys).toEqual(['/w/a.ts', '/w/c.ts', '/w/d.ts']);
+    await vi.waitFor(() => expect(store.file('/w/d.ts')?.state).toBe('ready'));
+    store.setDirty('/w/d.ts', true);
+    expect(store.tabs('s').preview).toBeUndefined();
+    // A file with changes not saved, open elsewhere, never previews.
+    store.open('t', '/w/d.ts', { preview: true });
+    expect(store.tabs('t').preview).toBeUndefined();
+    // A commit's file previews as a file does, and Keep open keeps it.
+    const commit = { repo: '/w', commit: 'c1', parent: null, path: 'e.ts', from: null };
+    store.openCommitFile('s', commit, { preview: true });
+    store.open('s', '/w/e.ts', { preview: true });
+    expect(store.tabs('s')).toMatchObject({
+      keys: ['/w/a.ts', '/w/c.ts', '/w/d.ts', '/w/e.ts'],
+      preview: '/w/e.ts',
+    });
+    store.keepOpen('s', '/w/e.ts');
+    expect(store.tabs('s').preview).toBeUndefined();
+    store.open('s', '/w/b.ts', { preview: true });
+    store.close('s', ['/w/b.ts']);
+    expect(store.tabs('s').preview).toBeUndefined();
+  });
+
+  it('puts the preview tab back after a reload, following it as it is renamed', () => {
+    const saved = new Map<string, KeptTabs>([
+      ['s', { tabs: ['/w/a.ts', '/w/b.ts'], active: '/w/a.ts', preview: '/w/b.ts' }],
+    ]);
+    const kept: Kept = {
+      read: (place) => saved.get(place),
+      write: (place, tabs) => saved.set(place, tabs),
+      forget: () => {},
+      view: () => undefined,
+      writeView: () => {},
+    };
+    const { store } = setup({}, kept);
+    store.restore('s', []);
+    expect(store.tabs('s').preview).toBe('/w/b.ts');
+    store.moved('/w/b.ts', '/w/c.ts');
+    expect(store.tabs('s').preview).toBe('/w/c.ts');
+    expect(saved.get('s')?.preview).toBe('/w/c.ts');
   });
 
   it('shows the tab beside the one closed', () => {
@@ -370,7 +440,9 @@ describe('editor store', () => {
     ]);
     const kept: Kept = {
       read: (place) => saved.get(place),
-      write: vi.fn((place, tabs, active) => saved.set(place, { tabs: [...tabs], active })),
+      write: vi.fn((place, kept) =>
+        saved.set(place, { tabs: [...kept.tabs], active: kept.active }),
+      ),
       forget: () => {},
       view: () => undefined,
       writeView: () => {},

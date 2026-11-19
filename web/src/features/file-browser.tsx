@@ -12,6 +12,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   AtSign,
+  Check,
   ChevronRight,
   ChevronsDownUp,
   CircleAlert,
@@ -23,6 +24,7 @@ import {
   FolderInput,
   FolderPlus,
   FolderRoot,
+  HardDrive,
   House,
   LocateFixed,
   MessageSquarePlus,
@@ -59,6 +61,7 @@ import {
   basename,
   crumbs,
   formatSize,
+  isWindows,
   join,
   movedTo,
   parent,
@@ -95,6 +98,7 @@ type Listing = Gateway['Listing'];
 type GitStatus = Gateway['GitStatus'];
 
 const LIST = '/api/files/list';
+const ROOTS = '/api/files/roots';
 
 /** A request from elsewhere to show a folder, and maybe a file in it. */
 export interface FilesTarget {
@@ -680,7 +684,7 @@ export function FileBrowser({
           }
           onFocus={setFocused}
           onToggle={toggle}
-          onOpen={(row) => workspace?.openFile(row.path)}
+          onOpen={(row, how) => workspace?.openFile(row.path, how)}
           onStartRename={(path) => {
             setCreating(undefined);
             setRenaming(path);
@@ -788,6 +792,7 @@ function PathBar({ path, onGo }: { path: string; onGo: (path: string) => void })
     );
   return (
     <div className="path-bar">
+      <Drives path={path} onGo={onGo} />
       <div
         ref={trail}
         className="path-trail"
@@ -823,6 +828,48 @@ function PathBar({ path, onGo }: { path: string; onGo: (path: string) => void })
         <Pencil size={14} />
       </Button>
     </div>
+  );
+}
+
+/** On Windows with more than one drive, a menu of them, to show another's root. */
+function Drives({ path, onGo }: { path: string; onGo: (path: string) => void }) {
+  const collisionPadding = useOverlayPadding();
+  const drives = useGateway<string[]>(ROOTS, undefined, isWindows(path));
+  if (!drives.data || drives.data.length < 2) return null;
+  const top = crumbs(path)[0]?.path.toLowerCase();
+  const current = drives.data.find((drive) => drive.toLowerCase() === top) ?? '';
+  return (
+    <DropdownMenu.Root
+      modal={false}
+      onOpenChange={(open) => {
+        if (open) void drives.refetch();
+      }}
+    >
+      <DropdownMenu.Trigger asChild>
+        <Button variant="ghost" size="icon" aria-label="Drives" title="Drives">
+          <HardDrive size={14} />
+        </Button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content
+          className="menu-panel drives-menu"
+          align="start"
+          sideOffset={4}
+          collisionPadding={collisionPadding}
+        >
+          <DropdownMenu.RadioGroup value={current} onValueChange={onGo}>
+            {drives.data.map((drive) => (
+              <DropdownMenu.RadioItem key={drive} className="menu-item" value={drive}>
+                {drive}
+                <DropdownMenu.ItemIndicator className="menu-item-hint">
+                  <Check size={14} />
+                </DropdownMenu.ItemIndicator>
+              </DropdownMenu.RadioItem>
+            ))}
+          </DropdownMenu.RadioGroup>
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
   );
 }
 

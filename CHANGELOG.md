@@ -27,6 +27,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A changed file opens in the editor beside what the last commit holds, unchanged stretches folded.
 - The Git panel stages and unstages files and folders, and commits with a message.
 - The Git panel's History lists the branch's commits, each with the files it changed.
+- A file clicked in Files or Git opens in a preview tab that the next one replaces until kept.
+- On Windows, a drive button before the path in Files shows the tree from another drive.
 
 ### Changed
 
@@ -49,6 +51,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A conversation opened where it can't center on the window centers in its area, not at its edge.
 - Moving the conversation, then making the window smaller, no longer lets the whole app scroll.
 - Middle-clicking an editor tab closes it when there are more tabs than fit, instead of scrolling.
+- A reply still being written no longer shows a gap where its part already saved ends.
 
 ## [0.43.0] - 2026-11-16
 

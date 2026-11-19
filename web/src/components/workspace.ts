@@ -1,6 +1,5 @@
 import { createContext, useContext, useEffect, useRef } from 'react';
-import type { CommitFile } from '../editor/store';
-import type { LineTarget } from '../files/paths';
+import type { CommitFile, Opening } from '../editor/store';
 
 /**
  * What a session's workspace offers what is shown in it: Files, opened at a path, the editor, its
@@ -9,12 +8,12 @@ import type { LineTarget } from '../files/paths';
 export interface Workspace {
   /** Opens Files at the folder `path`, showing the file `open` in it, and opening it, if given. */
   openFiles(path: string, open?: string): void;
-  /** Opens the file `path` in the editor, at `lines` if given. */
-  openFile(path: string, lines?: LineTarget): void;
+  /** Opens the file `path` in the editor, as `how` says: at its lines, or as the preview tab. */
+  openFile(path: string, how?: Opening): void;
   /** Opens the file `path` in the editor, beside what the last commit of `repo` holds. */
-  openChanges(path: string, repo: string): void;
+  openChanges(path: string, repo: string, how?: Opening): void;
   /** Opens `file`, as a commit holds it, in the editor, beside what the commit before held. */
-  openCommitFile(file: CommitFile): void;
+  openCommitFile(file: CommitFile, how?: Pick<Opening, 'preview'>): void;
   /** The session's working directory, or the folder chosen for a new one. */
   folder: string;
   /** Shows the file `path` in Files, chosen in its folder, without opening it. */

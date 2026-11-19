@@ -1799,6 +1799,10 @@ pre.bounded {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The preview tab, which the next file opened to look at takes the place of, as in VS Code. */
+.code-tab[data-preview] .code-tab-name > span {
+  font-style: italic;
+}
 .code-tab-close {
   flex-shrink: 0;
   display: flex;
@@ -3768,6 +3772,11 @@ summary.compaction-rule:hover::after {
 .message.message-continued {
   padding-top: 0;
 }
+/* A reply still being written runs on from its part already saved, as one: without the space after
+   that part, which sets one message apart from the next. */
+.message:has(+ .live-preview > .message-continued:first-child) {
+  padding-bottom: 0;
+}
 .agent-waiting-status {
   display: flex;
   align-items: center;
@@ -5463,6 +5472,10 @@ details > summary:has(.inline-heading) {
   min-height: 28px;
   padding: 7px;
   color: var(--muted);
+}
+.drives-menu {
+  width: auto;
+  min-width: 120px;
 }
 .path-trail {
   flex: 1;

@@ -2,7 +2,7 @@
  * Paths as the server writes them: on Unix from `/`, on Windows from a drive, `C:\`, or a share,
  * `\\server\share\`, with `\` between names, though `/` is taken too.
  */
-function isWindows(path: string): boolean {
+export function isWindows(path: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(path) || /^\\\\[^\\]/.test(path);
 }
 

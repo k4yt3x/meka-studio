@@ -78,6 +78,7 @@ pub(crate) fn signed_in() -> OpenApiRouter<App> {
         .routes(routes!(auth::session))
         .routes(routes!(account::preferences, account::save_preferences))
         .routes(routes!(status::status))
+        .routes(routes!(files::roots))
         .routes(routes!(files::list))
         .routes(routes!(files::watch))
         .routes(routes!(files::raw))

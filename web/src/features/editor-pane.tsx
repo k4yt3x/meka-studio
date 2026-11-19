@@ -18,6 +18,7 @@ import {
   GitCompareArrows,
   LoaderCircle,
   MoreHorizontal,
+  Pin,
   Plus,
   RotateCw,
   Save,
@@ -238,6 +239,12 @@ export function EditorPane({
           : key;
     return (
       <>
+        {key === tabs.preview && (
+          <Item className="menu-item" onSelect={() => store.keepOpen(place, key)}>
+            <Pin size={14} />
+            Keep open
+          </Item>
+        )}
         <Item className="menu-item" onSelect={() => close([key])}>
           <X size={14} />
           Close
@@ -367,7 +374,9 @@ export function EditorPane({
               tab={key}
               name={name(key)}
               selected={key === tabs.active}
+              preview={key === tabs.preview}
               onShow={() => store.show(place, key)}
+              onKeep={() => store.keepOpen(place, key)}
               onClose={() => close([key])}
               items={items}
             />
@@ -470,7 +479,9 @@ function Tab({
   tab,
   name,
   selected,
+  preview,
   onShow,
+  onKeep,
   onClose,
   items,
 }: {
@@ -478,7 +489,10 @@ function Tab({
   tab: string;
   name: string;
   selected: boolean;
+  /** Whether it is the preview tab, whose name shows in italics; a double click keeps it open. */
+  preview: boolean;
   onShow: () => void;
+  onKeep: () => void;
   onClose: () => void;
   items: (key: string, parts: MenuParts) => ReactNode;
 }) {
@@ -494,6 +508,7 @@ function Tab({
           className="code-tab"
           data-tab={tab}
           data-selected={selected || undefined}
+          data-preview={preview || undefined}
           data-dirty={file?.dirty || undefined}
           data-deleted={file?.deleted || undefined}
           title={
@@ -522,6 +537,7 @@ function Tab({
             aria-selected={selected}
             className="code-tab-name"
             onClick={onShow}
+            onDoubleClick={onKeep}
           >
             {terminal === undefined ? (
               <img

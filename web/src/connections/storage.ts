@@ -171,6 +171,8 @@ export interface SavedWorkspace {
   /** Its tabs, in order: files by path, terminals as `src/editor/store.ts` names them. */
   tabs: readonly string[];
   active?: string | undefined;
+  /** The tab opened only to look at, which the next one opened so takes the place of. */
+  preview?: string | undefined;
   /** The folder Files showed, and the folders open in its tree. */
   folder?: string | undefined;
   open: readonly string[];
@@ -191,10 +193,11 @@ function strings(value: unknown): string[] {
 function normalizeWorkspace(value: unknown): SavedWorkspace | undefined {
   if (!object(value)) return undefined;
   const tabs = strings(value.tabs);
-  const { active, folder } = value;
+  const { active, preview, folder } = value;
   return {
     tabs,
     ...(typeof active === 'string' && tabs.includes(active) ? { active } : {}),
+    ...(typeof preview === 'string' && tabs.includes(preview) ? { preview } : {}),
     ...(typeof folder === 'string' && folder ? { folder } : {}),
     open: strings(value.open),
   };

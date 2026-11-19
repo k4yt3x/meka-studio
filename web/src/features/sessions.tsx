@@ -41,8 +41,8 @@ import { FileBrowser, type FilesTarget } from './file-browser';
 import { GitPanel } from './git-panel';
 import { EditorPane } from './editor-pane';
 import { editorStore, saveFirst, useEditorStore } from '../editor/use-editor';
-import { terminalOf } from '../editor/store';
-import { basename, join, parent, type LineTarget } from '../files/paths';
+import { terminalOf, type Opening } from '../editor/store';
+import { basename, join, parent } from '../files/paths';
 import { focusMessage, WorkspaceProvider, type Workspace } from '../components/workspace';
 import { useSessionContext, useSessionMetadata, useSessionStates } from '../session/hooks';
 import { isSessionRunning } from '../session/controller';
@@ -341,8 +341,8 @@ export function SessionsPage({
       }
     };
     /** Opens `path` in the editor, at `lines` if given. */
-    const openFile = (path: string, lines?: LineTarget) => {
-      opening.current.store.open(opening.current.place, path, lines);
+    const openFile = (path: string, how?: Opening) => {
+      opening.current.store.open(opening.current.place, path, how);
       showOpened();
     };
     /** Shows Files at the folder `path`, the entry `open` in it chosen. */
@@ -364,12 +364,12 @@ export function SessionsPage({
     };
     return {
       openFile,
-      openChanges: (path, repo) => {
-        opening.current.store.openChanges(opening.current.place, path, repo);
+      openChanges: (path, repo, how) => {
+        opening.current.store.openChanges(opening.current.place, path, repo, how);
         showOpened();
       },
-      openCommitFile: (file) => {
-        opening.current.store.openCommitFile(opening.current.place, file);
+      openCommitFile: (file, how) => {
+        opening.current.store.openCommitFile(opening.current.place, file, how);
         showOpened();
       },
       folder: filesStart,

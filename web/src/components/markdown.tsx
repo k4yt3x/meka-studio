@@ -105,7 +105,9 @@ function FileAnchor({
 }) {
   const workspace = useWorkspace();
   const open = () =>
-    link.folder ? workspace?.openFiles(link.path) : workspace?.openFile(link.path, link.lines);
+    link.folder
+      ? workspace?.openFiles(link.path)
+      : workspace?.openFile(link.path, { lines: link.lines });
   const { lines } = link;
   return (
     <a

@@ -420,6 +420,26 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/files/roots': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * The folders every other is within: on Windows, the root of each drive with a letter, `C:\`,
+     *     mapped network drives among them; elsewhere, `/` alone.
+     */
+    get: operations['roots'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/files/text': {
     parameters: {
       query?: never;
@@ -2377,6 +2397,25 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+    };
+  };
+  roots: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': string[];
+        };
       };
     };
   };

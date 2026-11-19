@@ -48,10 +48,10 @@ export const DRAGGED_PATHS = 'application/x-meka-studio-paths';
 
 /**
  * The folder `root` as a tree, VS Code's way: a folder opens and closes with a click, its arrow,
- * or the arrow keys; a file opens with a double click or Enter, or a tap. Clicks choose, with Ctrl
- * or ⌘ adding and Shift choosing a range; a long press on a touch screen begins choosing. Entries
- * are named again in place with F2, dragged onto a folder to move them, and the computer's files
- * dropped onto one to upload them there.
+ * or the arrow keys; a file opens to look at with a click or a tap, and to keep with a double
+ * click or Enter. Clicks choose, with Ctrl or ⌘ adding and Shift choosing a range; a long press on
+ * a touch screen begins choosing. Entries are named again in place with F2, dragged onto a folder
+ * to move them, and the computer's files dropped onto one to upload them there.
  */
 export function FileTree({
   rows,
@@ -112,7 +112,8 @@ export function FileTree({
   onSelectAll: () => void;
   onFocus: (path: string) => void;
   onToggle: (path: string, open: boolean) => void;
-  onOpen: (row: EntryRow) => void;
+  /** Opens the file `row` is of: to look at, as the preview tab, with `preview`, else to keep. */
+  onOpen: (row: EntryRow, how: { preview: boolean }) => void;
   onStartRename: (path: string) => void;
   /** Names `path` `name`; whether that was done. */
   onRename: (path: string, name: string) => Promise<boolean>;
@@ -226,7 +227,7 @@ export function FileTree({
         if (!row || mod || event.shiftKey) return;
         event.preventDefault();
         if (row.folder) onToggle(row.path, !row.open);
-        else onOpen(row);
+        else onOpen(row, { preview: false });
         return;
       case ' ':
         if (!row) return;
@@ -520,14 +521,16 @@ export function FileTree({
                   if (pointer.current === 'touch') {
                     if (selecting) onChoose(row.path, { toggle: true, touch: true });
                     else if (row.folder) onToggle(row.path, !row.open);
-                    else onOpen(row);
+                    else onOpen(row, { preview: true });
                     return;
                   }
                   const toggle = event.ctrlKey || event.metaKey;
                   onChoose(row.path, { toggle, range: event.shiftKey });
-                  // The second click of a double click leaves a folder as the first made it.
-                  if (row.folder && !toggle && !event.shiftKey && event.detail <= 1)
-                    onToggle(row.path, !row.open);
+                  // The second click of a double click leaves a folder as the first made it, and
+                  // a file to the double click, which keeps it open.
+                  if (toggle || event.shiftKey || event.detail > 1) return;
+                  if (row.folder) onToggle(row.path, !row.open);
+                  else onOpen(row, { preview: true });
                 }}
                 onDoubleClick={(event) => {
                   if (
@@ -536,7 +539,7 @@ export function FileTree({
                     !event.ctrlKey &&
                     !event.metaKey
                   )
-                    onOpen(row);
+                    onOpen(row, { preview: false });
                 }}
               >
                 <span className="file-tree-twisty" aria-hidden="true">

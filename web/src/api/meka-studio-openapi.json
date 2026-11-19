@@ -1033,6 +1033,27 @@
         }
       }
     },
+    "/api/files/roots": {
+      "get": {
+        "tags": ["files"],
+        "summary": "The folders every other is within: on Windows, the root of each drive with a letter, `C:\\`,\nmapped network drives among them; elsewhere, `/` alone.",
+        "operationId": "roots",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/files/text": {
       "get": {
         "tags": ["files"],
