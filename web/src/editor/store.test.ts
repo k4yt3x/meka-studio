@@ -125,6 +125,37 @@ describe('editor store', () => {
     await vi.waitFor(() => expect(store.file('/w/data.txt')?.kind).toBe('binary'));
   });
 
+  it('follows a PDF on disk, to show it again only as it changes', async () => {
+    const disk: Disk = { '/w/a.pdf': { text: '%PDF-1', version: 'v0' } };
+    const { store, get } = setup(disk);
+    store.open('s', '/w/a.pdf');
+    expect(store.file('/w/a.pdf')?.state).toBe('loading');
+    await vi.waitFor(() => expect(store.file('/w/a.pdf')?.state).toBe('ready'));
+    expect(get).not.toHaveBeenCalledWith('/api/files/text', expect.anything());
+    const opened = store.file('/w/a.pdf')!.revision;
+    // Only another file in its folder changed.
+    disk['/w/b.txt'] = { text: 'b', version: 'v0' };
+    await store.folderChanged('/w');
+    expect(store.file('/w/a.pdf')?.revision).toBe(opened);
+    disk['/w/a.pdf'] = { text: '%PDF-2', version: 'v1' };
+    await store.folderChanged('/w');
+    expect(store.file('/w/a.pdf')?.revision).toBe(opened + 1);
+    delete disk['/w/a.pdf'];
+    await store.folderChanged('/w');
+    expect(store.file('/w/a.pdf')?.deleted).toBe(true);
+    // Back as it was, it is shown again all the same.
+    disk['/w/a.pdf'] = { text: '%PDF-2', version: 'v1' };
+    await store.folderChanged('/w');
+    expect(store.file('/w/a.pdf')).toMatchObject({ deleted: false, revision: opened + 2 });
+  });
+
+  it('tells of a PDF that is not there as it opens', async () => {
+    const { store } = setup({});
+    store.open('s', '/w/gone.pdf');
+    await vi.waitFor(() => expect(store.file('/w/gone.pdf')?.state).toBe('failed'));
+    expect(store.file('/w/gone.pdf')?.error).toMatchObject({ status: 404 });
+  });
+
   it('saves over only what was read, and takes a change on disk when it has none of its own', async () => {
     const disk: Disk = { '/w/a.ts': { text: 'one', version: 'v0' } };
     const { store, held, documents } = setup(disk);

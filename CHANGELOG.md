@@ -29,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - The Git panel's History lists the branch's commits, each with the files it changed.
 - A file clicked in Files or Git opens in a preview tab that the next one replaces until kept.
 - On Windows, a drive button before the path in Files shows the tree from another drive.
+- PDFs open in the editor, with zoom, find, links and selectable text, and follow changes on disk.
 
 ### Changed
 

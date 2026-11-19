@@ -74,14 +74,15 @@ import { isProblem, type Gateway, type GatewayClient } from '../api/gateway';
 import { TerminalView } from './terminal-view';
 import { useCommittedText, useGitFile } from './git-status';
 import { LineCounts } from './line-counts';
+import { PdfView } from './pdf-view';
 
 /**
  * The files and terminals open in a place, such as a session: a tab for each, and the one shown
  * below. Text opens in an editor, Monaco or, on a touch screen, CodeMirror; pictures, sound and
- * video show as they are; anything else can be downloaded. Changes are saved with Ctrl+S (⌘S), or
- * Save; a file changed on disk meanwhile takes what is there when it has no changes here, and
- * otherwise asks. A terminal's tab is its shell: closing it ends the shell. On a phone it covers
- * the screen, with the tabs in a menu.
+ * video show as they are, and PDFs as PDF.js draws them; anything else can be downloaded. Changes
+ * are saved with Ctrl+S (⌘S), or Save; a file changed on disk meanwhile takes what is there when it
+ * has no changes here, and otherwise asks. A terminal's tab is its shell: closing it ends the
+ * shell. On a phone it covers the screen, with the tabs in a menu.
  */
 export function EditorPane({
   place,
@@ -284,6 +285,14 @@ export function EditorPane({
             <a href={rawUrl(file, true)} download>
               <Download size={14} />
               Download
+            </a>
+          </Item>
+        )}
+        {file !== undefined && store.file(file)?.kind === 'pdf' && (
+          <Item className="menu-item" asChild>
+            <a href={rawUrl(file)} target="_blank" rel="noreferrer noopener">
+              <ExternalLink size={14} />
+              Open in new tab
             </a>
           </Item>
         )}
@@ -769,12 +778,14 @@ function EditorBody({
   const save = () => void store.save(file.path);
   // A file put back after a reload is read as it shows.
   useEffect(() => store.wake(file.path), [store, file.path]);
-  const bar = (
+  /** The file's bar, with what is shown's own tools after its path. */
+  const bar = (tools?: ReactNode) => (
     <div className="code-file-bar">
       <span className="code-file-path" title={file.path}>
         {/* Marks hold the path's slashes in place, as it is cut short from its start. */}
         {`\u200e${file.path}\u200e`}
       </span>
+      {tools}
       {text && markdown && (
         <Button size="sm" variant="ghost" onClick={() => setPreviewing(!previewing)}>
           {previewing ? <Code size={14} /> : <BookOpen size={14} />}
@@ -829,7 +840,7 @@ function EditorBody({
   if (file.state === 'loading')
     return (
       <>
-        {bar}
+        {bar()}
         <Loading label={`Opening ${file.name}…`} fill />
       </>
     );
@@ -853,14 +864,14 @@ function EditorBody({
   if (gone)
     return (
       <>
-        {bar}
+        {bar()}
         <ChangesView {...compare} modified={{ text: '' }} file={file} git={git} />
       </>
     );
   if (file.state === 'failed')
     return (
       <>
-        {bar}
+        {bar()}
         <div className="code-empty">
           <ErrorNotice error={file.error} />
           <Button size="sm" variant="secondary" onClick={() => void store.load(file.path)}>
@@ -870,16 +881,17 @@ function EditorBody({
         </div>
       </>
     );
+  if (file.kind === 'pdf') return <PdfView store={store} file={file} touch={touch} bar={bar} />;
   if (file.kind !== 'text')
     return (
       <>
-        {bar}
+        {bar()}
         <Viewer file={file} />
       </>
     );
   return (
     <>
-      {bar}
+      {bar()}
       {conflict?.kind === 'changed' && (
         <div className="code-conflict" role="status">
           <span>
@@ -1148,21 +1160,6 @@ function Viewer({ file }: { file: OpenFile }) {
       {file.kind === 'image' && <img src={url} alt={file.name} />}
       {file.kind === 'video' && <video src={url} controls playsInline />}
       {file.kind === 'audio' && <audio src={url} controls />}
-      {file.kind === 'pdf' && (
-        <div className="code-empty">
-          <FileQuestion size={28} aria-hidden="true" />
-          <p>PDFs open in a tab of their own.</p>
-          <a
-            className="button button-secondary button-small"
-            href={url}
-            target="_blank"
-            rel="noreferrer noopener"
-          >
-            <ExternalLink size={14} />
-            Open the PDF
-          </a>
-        </div>
-      )}
       {file.kind === 'binary' && (
         <div className="code-empty">
           <FileQuestion size={28} aria-hidden="true" />

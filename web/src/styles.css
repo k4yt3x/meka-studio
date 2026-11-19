@@ -1971,6 +1971,100 @@ pre.bounded {
 .code-empty p {
   margin: 0;
 }
+/* A PDF fills its tab, its pages on a ground of their own, as in a reader. */
+.pdf-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pdf-content {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+/* PDF.js measures the pages against what scrolls, which it requires to be placed absolutely. */
+.pdf-scroll {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  background: var(--surface);
+  outline: none;
+  /* A pinch zooms the PDF rather than the page. */
+  touch-action: pan-x pan-y;
+}
+.pdf-scroll[hidden] {
+  display: none;
+}
+.pdf-content > :is(.loading-fill, .code-empty) {
+  position: absolute;
+  inset: 0;
+}
+.pdf-password .field {
+  width: min(280px, 100%);
+  text-align: left;
+}
+.pdf-page {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pdf-page input {
+  width: calc(var(--digits) * 1ch + 14px);
+  height: 22px;
+  min-height: 22px;
+  padding: 0 4px;
+  border-radius: 5px;
+  font-size: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.code-file-bar .pdf-zoom {
+  flex-shrink: 0;
+  min-width: 50px;
+  padding: 0 6px;
+  font-variant-numeric: tabular-nums;
+}
+.pdf-zoom-menu {
+  width: auto;
+  min-width: 150px;
+}
+.pdf-find {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 3px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+.pdf-find input {
+  flex: 1;
+  min-width: 0;
+  max-width: 320px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0 8px;
+  border-radius: 5px;
+  font-size: 0.78rem;
+}
+.pdf-find-count {
+  margin-right: auto;
+  padding-left: 4px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pdf-find .button-icon {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 5px;
+}
 /* On a phone the editor covers the screen, with a bar to close it, pick a file, and save. */
 .code-sheet {
   position: fixed;

@@ -22,6 +22,24 @@ LICENSE_FILE = re.compile(r"^(licen[cs]e|copying|notice|unlicense|copyright)([-.
 # Tailwind's base styles, Vite's module preloading and Rolldown's module runtime.
 BUNDLED_FROM_DEV = {"material-icon-theme", "tailwindcss", "vite", "rolldown"}
 
+# Dependencies the interface's build never takes in: the canvas PDF.js draws with under Node, one
+# package for each system.
+NOT_BUNDLED = re.compile(r"^@napi-rs/canvas(-.+)?$")
+
+# License files kept below a package's top folder, beside files of it the interface's build takes
+# in: PDF.js's character maps, fonts, and image decoders built to JavaScript.
+NESTED_LICENSES = {
+    "pdfjs-dist": [
+        "cmaps/LICENSE",
+        "standard_fonts/LICENSE_FOXIT",
+        "standard_fonts/LICENSE_LIBERATION",
+        "wasm/LICENSE_JBIG2",
+        "wasm/LICENSE_PDFJS_JBIG2",
+        "wasm/LICENSE_OPENJPEG",
+        "wasm/LICENSE_PDFJS_OPENJPEG",
+    ],
+}
+
 
 def license_texts(folder: pathlib.Path, named: str | None) -> list[str]:
     """The license texts in a package's `folder`, with the file its manifest `named` first."""
@@ -106,17 +124,18 @@ def npm_packages() -> list[tuple[str, str, list[str]]]:
             continue
         name = path.rsplit("node_modules/", 1)[1]
         development = package.get("dev") or package.get("devOptional")
-        if development and name not in BUNDLED_FROM_DEV:
+        if (development and name not in BUNDLED_FROM_DEV) or NOT_BUNDLED.match(name):
             continue
         folder = web / path
         if not folder.is_dir():
             # An optional package for another system, which npm did not install here.
             continue
+        nested = [read(folder / file) for file in NESTED_LICENSES.get(name, [])]
         found.append(
             (
                 f"{name} {package.get('version', '')}".strip(),
                 package.get("license") or "no license stated",
-                license_texts(folder, None),
+                license_texts(folder, None) + nested,
             )
         )
     return found

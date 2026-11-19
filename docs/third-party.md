@@ -12,6 +12,8 @@ The server's Rust dependencies and exact versions are recorded in `Cargo.lock`; 
 
 The desktop app runs Meka (AGPL-3.0-or-later). Each of its downloads carries `THIRD-PARTY-NOTICES.txt`, which `crates/meka-studio-desktop/notices.py` writes from this page and the license files of every crate and npm package built into the app.
 
+PDFs are drawn by PDF.js (Apache-2.0), with Adobe's character maps (BSD-3-Clause), the Foxit fonts (BSD-3-Clause) and Liberation fonts (GPL-2.0 with its font exception), and OpenJPEG (BSD-2-Clause) and PDFium's JBIG2 decoder (BSD-3-Clause) built to JavaScript; their license files are in its package. Its build for older browsers includes core-js (MIT), © 2013–2025 Denis Pushkarev (zloirock.ru), 2025–2026 CoreJS Company (core-js.io).
+
 Chinese, Japanese, and Korean emphasis uses remark-cjk-friendly (MIT).
 
 The favicon and Home Screen icons come from [Meka's assets](https://github.com/k4yt3x/meka/tree/0.64.1/assets).

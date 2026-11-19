@@ -5,6 +5,11 @@ import { basename, movedTo, parent, previewKind, within, type LineTarget } from 
 /** How an open file shows: as text to edit, or by what it is. */
 export type FileKind = 'text' | 'image' | 'video' | 'audio' | 'pdf' | 'binary';
 
+/** Whether a file of `kind` is read, or looked at, as it opens, and followed as it changes. */
+function followed(kind: FileKind): boolean {
+  return kind === 'text' || kind === 'pdf';
+}
+
 /** What the file on disk became, while the open copy has changes of its own. */
 export type Conflict = { kind: 'changed'; text: string; version: string } | { kind: 'deleted' };
 
@@ -36,7 +41,10 @@ export interface OpenFile {
   saving: boolean;
   saveError?: unknown;
   conflict?: Conflict | undefined;
-  /** Goes up each time the text is replaced from disk, for the editor to take it. */
+  /**
+   * Goes up each time what is on disk replaces what shows: the text, for the editor to take it, or
+   * a PDF, to be read again.
+   */
   revision: number;
 }
 
@@ -469,7 +477,10 @@ export class EditorStore {
     this.emit();
   }
 
-  /** Adds the file `path`, to be read where it is text, if it is not open; whether it was not. */
+  /**
+   * Adds the file `path`, if it is not open, to be read where it is text, or looked at where it is
+   * a PDF; whether it was not.
+   */
   private add(path: string): boolean {
     if (this.files.has(path)) return false;
     const kind = previewKind(basename(path));
@@ -478,7 +489,7 @@ export class EditorStore {
       path,
       name: basename(path),
       kind,
-      state: kind === 'text' ? 'loading' : 'ready',
+      state: followed(kind) ? 'loading' : 'ready',
       text: '',
       version: null,
       bom: false,
@@ -661,8 +672,12 @@ export class EditorStore {
     }
   }
 
-  /** Reads the text file `path`, to edit; on reading it again, what changed on disk shows. */
+  /**
+   * Reads the text file `path`, to edit; on reading it again, what changed on disk shows. A PDF is
+   * looked at in its folder, for its changes to be told from its size and modified time.
+   */
   async load(path: string) {
+    if (this.files.get(path)?.kind === 'pdf') return this.look(path);
     try {
       const read = await this.gateway.get<Gateway['Text']>('/api/files/text', {
         path,
@@ -724,13 +739,54 @@ export class EditorStore {
     this.update(path, { deleted: true, conflict: { kind: 'deleted' } });
   }
 
+  /** Looks at the PDF `path` in its folder, as it opens; see {@link sawPdf}. */
+  private async look(path: string) {
+    try {
+      const listing = await this.gateway.get<Gateway['Listing']>('/api/files/list', {
+        path: parent(path),
+      });
+      const entry = listing.entries.find((each) => each.name === basename(path));
+      if (entry) this.sawPdf(path, entry);
+      else
+        this.update(path, {
+          state: 'failed',
+          error: new ApiError(404, { detail: `${path} is not there` }),
+        });
+    } catch (error) {
+      this.update(path, { state: 'failed', error });
+    }
+  }
+
+  /**
+   * Notes the PDF `path` as its folder lists it: opening, or, where its size or modified time
+   * moved, or it came back, to be shown again. A symlink's entry tells of the link, not of the file
+   * it leads to, so that counts as moved.
+   */
+  private sawPdf(path: string, entry: Gateway['Entry']) {
+    const file = this.files.get(path);
+    if (!file) return;
+    const seen = { size: entry.size, modified: entry.modified ?? null };
+    if (file.state !== 'ready') {
+      this.update(path, { ...seen, state: 'ready', error: undefined });
+      return;
+    }
+    if (
+      entry.kind !== 'symlink' &&
+      !file.deleted &&
+      seen.size === file.size &&
+      seen.modified === file.modified
+    )
+      return;
+    this.update(path, { ...seen, deleted: false, revision: file.revision + 1 });
+  }
+
   /**
    * Looks again at the open files in `folder`, which changed: those whose size or modified time
    * moved are read again, and those gone are marked so.
    */
   async folderChanged(folder: string) {
     const open = [...this.files.values()].filter(
-      (file) => file.kind === 'text' && file.state === 'ready' && parent(file.path) === folder,
+      (file) => followed(file.kind) && file.state === 'ready' && parent(file.path) === folder,
     );
     if (!open.length) return;
     let listing: Gateway['Listing'];
@@ -744,6 +800,7 @@ export class EditorStore {
     for (const file of open) {
       const entry = listing.entries.find((each) => each.name === file.name);
       if (!entry) this.gone(file.path);
+      else if (file.kind === 'pdf') this.sawPdf(file.path, entry);
       // A symlink's entry tells of the link, not of the file it leads to: that is read again.
       else if (
         entry.kind === 'symlink' ||

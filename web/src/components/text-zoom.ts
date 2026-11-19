@@ -25,10 +25,13 @@ const SIZES_ITS_TEXT = 'data-text-zoom';
 
 /**
  * Calls `onStep` as Ctrl with the wheel, or a touchpad's pinch, over `element` asks for larger or
- * smaller text, which it then has rather than the page. Small pinch steps add up to one. Returns
- * what stops following it.
+ * smaller text, which it then has rather than the page, with the point on the screen it was asked
+ * at. Small pinch steps add up to one. Returns what stops following it.
  */
-export function followZoomWheel(element: HTMLElement, onStep: (step: -1 | 1) => void) {
+export function followZoomWheel(
+  element: HTMLElement,
+  onStep: (step: -1 | 1, at: [number, number]) => void,
+) {
   let scrolled = 0;
   const wheel = (event: WheelEvent) => {
     if (!event.ctrlKey) return;
@@ -36,7 +39,7 @@ export function followZoomWheel(element: HTMLElement, onStep: (step: -1 | 1) => 
     event.stopPropagation();
     scrolled += event.deltaMode === WheelEvent.DOM_DELTA_PIXEL ? event.deltaY : event.deltaY * 40;
     if (Math.abs(scrolled) < 50) return;
-    onStep(scrolled < 0 ? 1 : -1);
+    onStep(scrolled < 0 ? 1 : -1, [event.clientX, event.clientY]);
     scrolled = 0;
   };
   element.setAttribute(SIZES_ITS_TEXT, '');
