@@ -24,39 +24,32 @@ export function AccountMenu({ children }: { children?: ReactNode }) {
       : state.connectionIssue === 'checking'
         ? 'Reconnecting'
         : 'Connected';
+  const link = desktopApp
+    ? { Icon: Server, name: 'Meka', section: 'about' as const, label: 'About Meka', title: 'Meka' }
+    : {
+        Icon: UserRound,
+        name: account.username,
+        section: 'account' as const,
+        label: `Account settings for ${account.username} on ${account.device_name}`,
+        title: `${account.username} · ${account.device_name}`,
+      };
   return (
     <>
       <ErrorNotice error={signingOut.error} />
       <div className="account-bar" data-status={state.connectionIssue ?? 'connected'}>
-        {desktopApp ? (
-          <a
-            href="#/settings"
-            className="account-link"
-            aria-label={`About Meka, ${status.toLowerCase()}`}
-            title={`Meka · ${status}`}
-            onClick={(event) => {
-              event.preventDefault();
-              openSettings('about');
-            }}
-          >
-            <Server size={18} aria-hidden="true" />
-            <span className="account-name">Meka</span>
-          </a>
-        ) : (
-          <a
-            href="#/settings"
-            className="account-link"
-            aria-label={`Account settings for ${account.username} on ${account.device_name}, ${status.toLowerCase()}`}
-            title={`${account.username} · ${account.device_name} · ${status}`}
-            onClick={(event) => {
-              event.preventDefault();
-              openSettings('account');
-            }}
-          >
-            <UserRound size={18} aria-hidden="true" />
-            <span className="account-name">{account.username}</span>
-          </a>
-        )}
+        <a
+          href="#/settings"
+          className="account-link"
+          aria-label={`${link.label}, ${status.toLowerCase()}`}
+          title={`${link.title} · ${status}`}
+          onClick={(event) => {
+            event.preventDefault();
+            openSettings(link.section);
+          }}
+        >
+          <link.Icon size={18} aria-hidden="true" />
+          <span className="account-name">{link.name}</span>
+        </a>
         {children}
         <button
           type="button"

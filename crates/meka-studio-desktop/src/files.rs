@@ -240,7 +240,8 @@ fn read_or_default<T: DeserializeOwned + Default>(path: &Path) -> T {
 /// [`MAX_LOG_BYTES`].
 pub(crate) fn open_log(path: &Path) -> anyhow::Result<std::fs::File> {
     if std::fs::metadata(path).is_ok_and(|metadata| metadata.len() > MAX_LOG_BYTES) {
-        std::fs::rename(path, path.with_extension("log.1"))?;
+        std::fs::rename(path, path.with_extension("log.1"))
+            .with_context(|| format!("could not set {} aside", path.display()))?;
     }
     std::fs::OpenOptions::new()
         .create(true)

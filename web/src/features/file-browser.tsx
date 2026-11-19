@@ -1577,6 +1577,19 @@ function UploadSummary({
   );
 }
 
+/** What a file's upload row says of each state; none while it is sent, which shows how far. */
+const UPLOAD_STATES: Record<UploadItem['state'], string | undefined> = {
+  queued: 'Waiting',
+  starting: undefined,
+  sending: undefined,
+  retrying: 'Trying again…',
+  exists: 'Already exists',
+  done: 'Uploaded',
+  failed: 'Not uploaded',
+  cancelled: 'Cancelled',
+  skipped: 'Skipped',
+};
+
 /** A file, or a folder's files, of an upload, as a row of the tree would show it. */
 function UploadRow({
   row,
@@ -1602,21 +1615,7 @@ function UploadRow({
       : done === row.items.length
         ? 'Uploaded'
         : `${done.toLocaleString()} of ${row.items.length.toLocaleString()} uploaded`
-    : item.state === 'queued'
-      ? 'Waiting'
-      : item.state === 'retrying'
-        ? 'Trying again…'
-        : item.state === 'done'
-          ? 'Uploaded'
-          : item.state === 'cancelled'
-            ? 'Cancelled'
-            : item.state === 'skipped'
-              ? 'Skipped'
-              : item.state === 'exists'
-                ? 'Already exists'
-                : item.state === 'failed'
-                  ? 'Not uploaded'
-                  : `${formatSize(item.sent)} of ${formatSize(item.size)}`;
+    : (UPLOAD_STATES[item.state] ?? `${formatSize(item.sent)} of ${formatSize(item.size)}`);
   const icon = row.folder ? folderIconName(name, false) : fileIconName(name);
   return (
     <div

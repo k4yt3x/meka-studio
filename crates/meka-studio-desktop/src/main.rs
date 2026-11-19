@@ -24,13 +24,12 @@ use std::{
 use meka_studio::desktop::{Options, ProcessState, Server};
 use tauri::{Manager, RunEvent};
 use tauri_plugin_notification::NotificationExt;
-use tauri_plugin_opener::OpenerExt;
 use tracing_subscriber::EnvFilter;
 
 use crate::{
     files::Paths,
     meka::{Launch, Meka},
-    shell::Shell,
+    shell::{Opens, Shell},
 };
 
 /// How long the app waits for Meka to answer before it starts Meka Studio anyway, which then says
@@ -66,8 +65,13 @@ fn main() {
     let app = match app {
         Ok(app) => app,
         Err(error) => {
-            tracing::error!("{name} could not start: {error}");
-            eprintln!("{name} could not start: {error}");
+            let message = format!("{name} could not start: {error}");
+            tracing::error!("{message}");
+            // A release build on Windows has no console to write to.
+            #[cfg(windows)]
+            system::message_box(&name, &message);
+            #[cfg(not(windows))]
+            eprintln!("{message}");
             std::process::exit(1);
         }
     };
@@ -196,21 +200,11 @@ fn setup(app: &tauri::AppHandle) -> anyhow::Result<()> {
         if action.action_id() != "tap" {
             return;
         }
-        let Some(extra) = action
+        if let Some(opens) = action
             .notification()
-            .map(|notification| notification.extra())
-        else {
-            return;
-        };
-        let text = |name: &str| extra.get(name).and_then(serde_json::Value::as_str);
-        if let Some(session) = text("session") {
-            window::open_session(&clicked, session);
-        } else if let Some(page) = text("page").and_then(|page| page.parse().ok()) {
-            window::open_outside(&clicked, &page);
-        } else if let Some(file) = text("file")
-            && let Err(error) = clicked.opener().reveal_item_in_dir(file)
+            .and_then(|notification| Opens::from_extra(notification.extra()))
         {
-            tracing::warn!("could not show the download in its folder: {error}");
+            opens.open(&clicked);
         }
     })?;
     #[cfg(windows)]
@@ -327,7 +321,8 @@ fn new_listener() -> anyhow::Result<TcpListener> {
 
 /// Logs to `meka-studio.log` in the logs' folder, or in a debug build to standard error.
 fn logging(paths: &Paths) -> anyhow::Result<()> {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(meka_studio::DEFAULT_LOG));
     let subscriber = tracing_subscriber::fmt().with_env_filter(filter);
     let set = if cfg!(debug_assertions) {
         subscriber.with_writer(std::io::stderr).try_init()

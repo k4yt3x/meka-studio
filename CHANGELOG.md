@@ -54,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Moving the conversation, then making the window smaller, no longer lets the whole app scroll.
 - Middle-clicking an editor tab closes it when there are more tabs than fit, instead of scrolling.
 - A reply still being written no longer shows a gap where its part already saved ends.
+- On Windows, Files no longer fills the log with warnings about entries it cannot read.
 
 ## [0.43.0] - 2026-11-16
 

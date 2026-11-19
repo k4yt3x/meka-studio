@@ -115,8 +115,10 @@ export interface Settings {
   theme: 'system' | 'light' | 'dark';
   conversationFontSize: number;
   conversationMaxWidth: ConversationMaxWidth;
-  /** Where the reading column is centered: the page's middle or the conversation area's. */
-  /** None where the default applies: {@link conversationAnchorIn} says which. */
+  /**
+   * Where the reading column is centered, the page's middle or the conversation area's; none where
+   * the default applies, which {@link conversationAnchorIn} says.
+   */
   conversationAnchor: ConversationAnchor | undefined;
   /** Pixels the reading column moves right of its center; negative moves it left. */
   conversationOffset: number;

@@ -187,14 +187,30 @@ jobs:
           cp "target/$TARGET/release/meka-studio-desktop.exe" LICENSE \
             crates/meka-studio-desktop/binaries/meka.exe \
             crates/meka-studio-desktop/binaries/THIRD-PARTY-NOTICES.txt meka-studio-desktop/
-      - if: runner.os == 'Windows'
-        run: choco install innosetup --version 6.7.1 --allow-downgrade --yes --no-progress
+      # From Inno Setup's own GitHub release: the address Chocolatey's package downloads it from
+      # no longer serves it.
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $setup = "$env:RUNNER_TEMP\innosetup-6.7.1.exe"
+          Invoke-WebRequest -OutFile $setup `
+            https://github.com/jrsoftware/issrc/releases/download/is-6_7_1/innosetup-6.7.1.exe
+          $sha256 = '4d11e8050b6185e0d49bd9e8cc661a7a59f44959a621d31d11033124c4e8a7b0'
+          if ((Get-FileHash $setup -Algorithm SHA256).Hash -ne $sha256) {
+            throw "$setup does not have the SHA-256 $sha256"
+          }
+          $installed = Start-Process $setup -Wait -PassThru -ArgumentList '/VERYSILENT',
+            '/SUPPRESSMSGBOXES', '/NORESTART', '/CURRENTUSER', "/DIR=$env:RUNNER_TEMP\inno"
+          if ($installed.ExitCode) {
+            throw "Inno Setup's installer ended with $($installed.ExitCode)"
+          }
       # In PowerShell, as Git's Bash turns ISCC's /-options into paths.
       - name: Make the installer
         if: runner.os == 'Windows'
         shell: pwsh
         run: >
-          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q
+          & "$env:RUNNER_TEMP\inno\ISCC.exe" /Q
           "/DAppVersion=$env:GITHUB_REF_NAME" "/DBundle=$PWD\meka-studio-desktop" "/O$PWD"
           crates\meka-studio-desktop\windows\meka-studio-desktop.iss
       # The marker makes the copy portable, keeping its data in a data folder beside it.

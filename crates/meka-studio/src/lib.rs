@@ -25,3 +25,9 @@ mod web;
 
 #[cfg(test)]
 mod tests;
+
+/// What is logged where `RUST_LOG` says nothing: information and up, but only the errors of
+/// notify's polling, which watches folders on Windows. It warns on each pass of every entry it
+/// cannot read, as a home folder holds, and hands the same to the watcher, which decides what to
+/// say of it.
+pub const DEFAULT_LOG: &str = "info,notify::poll=error";

@@ -2,6 +2,7 @@
 //! settings, restarting Meka, and opening its folders. It keeps the main window's place too.
 
 use std::{
+    collections::HashMap,
     sync::{
         Arc, Mutex, OnceLock,
         atomic::{AtomicBool, AtomicI32, Ordering},
@@ -36,12 +37,41 @@ pub(crate) enum Opens {
 }
 
 impl Opens {
-    /// The name and value a notification carries this as.
+    const FILE: &'static str = "file";
+    const PAGE: &'static str = "page";
+    const SESSION: &'static str = "session";
+
+    /// The name and value a notification carries this as, which [`Self::from_extra`] reads.
     fn extra(&self) -> (&'static str, &str) {
         match self {
-            Self::Session(session) => ("session", session),
-            Self::Page(url) => ("page", url),
-            Self::File(path) => ("file", path),
+            Self::Session(session) => (Self::SESSION, session),
+            Self::Page(url) => (Self::PAGE, url),
+            Self::File(path) => (Self::FILE, path),
+        }
+    }
+
+    /// What a notification carrying `extra` opens, as [`Self::extra`] wrote it.
+    pub(crate) fn from_extra(extra: &HashMap<String, serde_json::Value>) -> Option<Self> {
+        let text = |name: &str| Some(extra.get(name)?.as_str()?.to_owned());
+        text(Self::SESSION)
+            .map(Self::Session)
+            .or_else(|| text(Self::PAGE).map(Self::Page))
+            .or_else(|| text(Self::FILE).map(Self::File))
+    }
+
+    /// Opens it: a session in the main window, a page in the browser, a file in its folder.
+    pub(crate) fn open(self, app: &AppHandle) {
+        match self {
+            Self::Session(session) => window::open_session(app, &session),
+            Self::Page(url) => match url.parse() {
+                Ok(url) => window::open_outside(app, &url),
+                Err(error) => tracing::warn!("not opening {url}: {error}"),
+            },
+            Self::File(path) => {
+                if let Err(error) = app.opener().reveal_item_in_dir(path) {
+                    tracing::warn!("could not show the download in its folder: {error}");
+                }
+            }
         }
     }
 }
@@ -329,6 +359,23 @@ fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_clicked_notification_opens_what_it_was_shown_with() {
+        let carried = |opens: &Opens| {
+            let (name, value) = opens.extra();
+            HashMap::from([(name.to_owned(), serde_json::Value::from(value))])
+        };
+        for opens in [
+            Opens::Session("s1".to_owned()),
+            Opens::Page("https://example.org/".to_owned()),
+            Opens::File("/home/me/Downloads/a.txt".to_owned()),
+        ] {
+            let read = Opens::from_extra(&carried(&opens));
+            assert_eq!(read.as_ref().map(Opens::extra), Some(opens.extra()));
+        }
+        assert!(Opens::from_extra(&HashMap::new()).is_none());
+    }
 
     #[test]
     fn a_move_that_resizes_the_window_leaves_its_place_to_the_resize() {

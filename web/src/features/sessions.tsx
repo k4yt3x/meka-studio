@@ -1233,7 +1233,6 @@ function SessionTools({ sessionId }: { sessionId: string }) {
     </div>
   );
 }
-/** The panels that tell of a session, which a narrow screen shows together in one sheet. */
 /** The panels of what the session works on, there for a new conversation's folder too. */
 const WORKSPACE_PANELS = ['files', 'git'] as const satisfies readonly Panel[];
 type WorkspacePanel = (typeof WORKSPACE_PANELS)[number];
@@ -1242,6 +1241,7 @@ function isWorkspacePanel(panel: Panel): panel is WorkspacePanel {
   return (WORKSPACE_PANELS as readonly Panel[]).includes(panel);
 }
 
+/** The panels that tell of a session, which a narrow screen shows together in one sheet. */
 type DetailsTab = Exclude<Panel, WorkspacePanel>;
 
 /**
