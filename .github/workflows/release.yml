@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
+  # Run by hand, it builds every file a release has, as the run's artifacts, and publishes nothing.
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -16,6 +18,8 @@ jobs:
   interface:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      version: ${{ steps.versions.outputs.version }}
     defaults:
       run:
         working-directory: web
@@ -26,21 +30,25 @@ jobs:
           node-version-file: web/.nvmrc
           cache: npm
           cache-dependency-path: web/package-lock.json
-      - name: Check the tag against the versions
+      - name: Check the versions, and the tag against them
+        id: versions
         run: |
           node --input-type=module <<'NODE'
-          import { readFileSync } from 'node:fs';
+          import { appendFileSync, readFileSync } from 'node:fs';
           const { version } = JSON.parse(readFileSync('package.json', 'utf8'));
           const lock = JSON.parse(readFileSync('package-lock.json', 'utf8'));
           const cargo = readFileSync('../Cargo.toml', 'utf8');
           const crate = /^\[workspace\.package\][^[]*?^version = "([^"]+)"/m.exec(cargo)?.[1];
           const tag = process.env.GITHUB_REF_NAME;
-          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(tag ?? '') || tag !== version)
+          if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version))
+            throw new Error(`package.json's version ${version} is not major.minor.patch.`);
+          if (process.env.GITHUB_EVENT_NAME === 'push' && tag !== version)
             throw new Error(`Tag ${tag} must match package.json's version ${version}.`);
           if (lock.version !== version || lock.packages[''].version !== version)
             throw new Error('package-lock.json must match package.json.');
           if (crate !== version) throw new Error(`Cargo.toml's version ${crate} must match ${version}.`);
-          console.log(`Releasing Meka Studio ${version}`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `version=${version}\n`);
+          console.log(`Building Meka Studio ${version}`);
           NODE
       - run: npm ci
       - run: npm run check
@@ -209,9 +217,11 @@ jobs:
       - name: Make the installer
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          VERSION: ${{ needs.interface.outputs.version }}
         run: >
           & "$env:RUNNER_TEMP\inno\ISCC.exe" /Q
-          "/DAppVersion=$env:GITHUB_REF_NAME" "/DBundle=$PWD\meka-studio-desktop" "/O$PWD"
+          "/DAppVersion=$env:VERSION" "/DBundle=$PWD\meka-studio-desktop" "/O$PWD"
           crates\meka-studio-desktop\windows\meka-studio-desktop.iss
       # The marker makes the copy portable, keeping its data in a data folder beside it.
       - name: Make the portable zip
@@ -228,6 +238,7 @@ jobs:
 
   publish:
     needs: [binaries, desktop]
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:

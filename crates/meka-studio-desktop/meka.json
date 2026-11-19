@@ -1,18 +1,18 @@
 {
-  "version": "0.96.0",
+  "version": "0.96.1",
   "url": "https://github.com/k4yt3x/meka/releases/download/{version}/{file}",
   "assets": {
     "x86_64-unknown-linux-gnu": {
       "file": "meka-linux-amd64.tar.gz",
-      "sha256": "14ee94c862f142060fd98279071f217ddd8f99ae8aba8d83f68f5abb4cad8d98"
+      "sha256": "7288fda3d613172c4098be82ed8869823cceeee6026a3ef3e7b776a951929eca"
     },
     "x86_64-pc-windows-msvc": {
       "file": "meka-windows-amd64.zip",
-      "sha256": "be4c73e1942a3119b0a5ffe2e708934428e6c66907363aa59c0b4ffcd0044342"
+      "sha256": "710d58255399f48467231aaab8e40ee985319817fad59b16125dc7b8b9869cb8"
     },
     "aarch64-apple-darwin": {
       "file": "meka-macos-arm64.tar.gz",
-      "sha256": "23516fa06f2d1cdb3acafe643624bdf2947036a5af1df21b4ef9e7690a266992"
+      "sha256": "d368e285277dfa266c320034233d9b52221561839004619901ea1d00953cc5a9"
     }
   }
 }

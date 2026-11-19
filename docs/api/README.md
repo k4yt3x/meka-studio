@@ -158,6 +158,8 @@ Meka Studio requires Meka 0.95.0 or newer and refuses older servers when it conn
 - A working directory whose path is not valid Unicode is refused, which the client shows as any refused request.
 - `meka serve --exit-on-stdin-close` drains and ends the server when its standard input closes. The desktop app starts its Meka so, holding the pipe for as long as Meka should run.
 
+0.96.1 changes nothing in the HTTP API: its schema differs from 0.96.0's only in its version, so the baseline stays 0.96.0. The desktop app comes with 0.96.1.
+
 `tool_call.completed` still carries `change`, the whole text a file, memory, or skill change left before and after, which can run to megabytes. The SSE parser therefore skips data past 2,000,000 characters and keeps the frame's id, so a reconnect cannot replay it. A skipped tool completion keeps its call, outcome, and correlation from the ends of its JSON, and other skipped events become a notice.
 
 The feed's 409 covers `session-not-loaded`: a token with only `sessions:r` does not load a session by attaching. The client then shows the saved conversation and retries the feed until the server loads the session. `POST /compact` runs as a turn on the feed, with `source: "compaction"` on `turn.started`; the client shows it as compacting and does not notify when it ends.

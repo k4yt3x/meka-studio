@@ -15,7 +15,7 @@ Besides Meka's sessions, memory, skills, schedules, MCP servers, accounts and pr
 
 The **desktop app** is Meka Studio for the computer you work on: it runs a Meka of its own, with its own config and sessions, in a window with a tray icon and system notifications. It needs no token, service or sign-in.
 
-This release supports **Meka 0.95.0** and newer; the desktop app comes with Meka 0.96.0.
+This release supports **Meka 0.95.0** and newer; the desktop app comes with Meka 0.96.1.
 
 web.meka.run, the static site that reached Meka straight from the browser, is retired; its last release was Meka Studio 0.23.1.
 
