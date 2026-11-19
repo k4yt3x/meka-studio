@@ -7,7 +7,7 @@ use std::sync::{
     atomic::{AtomicU32, Ordering},
 };
 
-use meka_studio::desktop::{CloseAction, DesktopSettings, Host};
+use meka_studio::desktop::{CloseAction, DesktopSettings, Host, ZoomStep};
 use tauri::{
     AppHandle, Manager, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry,
     menu::{Menu, MenuItem},
@@ -84,7 +84,14 @@ fn builder<'a>(
         .disable_drag_drop_handler()
         .on_navigation(move |url| {
             let (app, origin) = &navigating;
-            if is_studio(url, origin) || is_start_page(url) || url.as_str() == "about:blank" {
+            // Once Meka Studio is in, going back in the window's history stops short of the start
+            // page, which would wait for a Meka that answered already.
+            if is_start_page(url) {
+                return !app
+                    .try_state::<Arc<Shell>>()
+                    .is_some_and(|shell| shell.entered.load(Ordering::SeqCst));
+            }
+            if is_studio(url, origin) || url.as_str() == "about:blank" {
                 return true;
             }
             open_outside(app, url);
@@ -127,6 +134,8 @@ pub(crate) fn open_main(app: &AppHandle, origin: &Url) -> tauri::Result<WebviewW
         .traffic_light_position(tauri::LogicalPosition::new(16.0, 18.0));
     let window = window.build()?;
     crate::drops::tell_paths(&window, origin);
+    #[cfg(windows)]
+    without_browser_keys(&window);
     if TITLE_BAR.is_some() {
         app.add_capability(
             TITLE_BAR_PERMISSIONS.iter().fold(
@@ -138,6 +147,11 @@ pub(crate) fn open_main(app: &AppHandle, origin: &Url) -> tauri::Result<WebviewW
         )?;
     }
     let shell = app.state::<Arc<Shell>>();
+    if let Some(zoom) = shell.memory().zoom
+        && let Err(error) = window.set_zoom(scale(zoom))
+    {
+        tracing::warn!("could not zoom the window as it was: {error}");
+    }
     let kept = put_back(&window, shell.memory().window).unwrap_or_else(|error| {
         tracing::warn!("could not put the window where it was: {error}");
         None
@@ -161,7 +175,7 @@ pub(crate) fn open_main(app: &AppHandle, origin: &Url) -> tauri::Result<WebviewW
             match app.state::<Arc<Shell>>().settings().close {
                 CloseAction::Ask => ask_on_close(&app, &main),
                 CloseAction::Tray => hide_main(&app, &main),
-                CloseAction::Quit => crate::quit(&app),
+                CloseAction::Quit => crate::ask_to_quit(&app),
             }
         }
         _ => {}
@@ -265,9 +279,10 @@ fn on_screen(place: &WindowPlace, areas: &[tauri::PhysicalRect<i32, u32>]) -> bo
     })
 }
 
-/// Where `window` is now, unless it is maximized or minimized, which leaves its place as it was.
+/// Where `window` is now, unless it is maximized, minimized or over the whole screen, which leaves
+/// its place as it was.
 pub(crate) fn normal_place(window: &WebviewWindow) -> tauri::Result<Option<WindowPlace>> {
-    if window.is_maximized()? || window.is_minimized()? {
+    if window.is_maximized()? || window.is_minimized()? || window.is_fullscreen()? {
         return Ok(None);
     }
     let position = window.outer_position()?;
@@ -394,7 +409,79 @@ pub(crate) fn enter(app: &AppHandle, entry: &str) -> anyhow::Result<()> {
         window.set_decorations(false)?;
     }
     window.navigate(entry.parse()?)?;
+    app.state::<Arc<Shell>>()
+        .entered
+        .store(true, Ordering::SeqCst);
     Ok(())
+}
+
+/// The window's zoom levels, in percent, as browsers step through them, from [`MIN_ZOOM`] to
+/// [`MAX_ZOOM`].
+const ZOOMS: [u16; 13] = [
+    MIN_ZOOM, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200, 250, MAX_ZOOM,
+];
+const MIN_ZOOM: u16 = 50;
+const MAX_ZOOM: u16 = 300;
+
+/// The zoom, in percent, a `step` from `now` comes to.
+pub(crate) fn zoomed(now: u16, step: ZoomStep) -> u16 {
+    let levels = ZOOMS.iter().copied();
+    match step {
+        ZoomStep::In => levels.filter(|&zoom| zoom > now).min(),
+        ZoomStep::Out => levels.filter(|&zoom| zoom < now).max(),
+        ZoomStep::Reset => Some(100),
+    }
+    .unwrap_or(now)
+}
+
+/// `zoom`, in percent, as the scale a webview takes, within [`ZOOMS`].
+fn scale(zoom: u16) -> f64 {
+    f64::from(zoom.clamp(MIN_ZOOM, MAX_ZOOM)) / 100.0
+}
+
+/// Zooms the main window to `zoom`, in percent.
+pub(crate) fn zoom_main(app: &AppHandle, zoom: u16) -> tauri::Result<()> {
+    match app.get_webview_window(MAIN) {
+        Some(window) => window.set_zoom(scale(zoom)),
+        None => Ok(()),
+    }
+}
+
+/// Shows the main window over the whole screen, or as it was before.
+pub(crate) fn toggle_full_screen(app: &AppHandle) -> tauri::Result<()> {
+    let Some(window) = app.get_webview_window(MAIN) else {
+        return Ok(());
+    };
+    window.set_fullscreen(!window.is_fullscreen()?)
+}
+
+/// Asks whether to quit while `running` sessions run a turn, which quitting stops, telling
+/// `answered` whether to. The question shows over the main window, brought to the front for it.
+pub(crate) fn ask_to_stop_turns(
+    app: &AppHandle,
+    running: usize,
+    answered: impl FnOnce(bool) + Send + 'static,
+) {
+    show_main(app);
+    let message = if running == 1 {
+        "A turn is running. Quitting stops it.".to_owned()
+    } else {
+        format!("{running} turns are running. Quitting stops them.")
+    };
+    let dialog = app
+        .dialog()
+        .message(message)
+        .title(app.package_info().name.clone())
+        .kind(tauri_plugin_dialog::MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Quit".to_owned(),
+            "Cancel".to_owned(),
+        ));
+    let dialog = match app.get_webview_window(MAIN) {
+        Some(main) => dialog.parent(&main),
+        None => dialog,
+    };
+    dialog.show(answered);
 }
 
 /// Shows the Meka session `session` in the main window.
@@ -478,21 +565,120 @@ pub(crate) fn fail_to_start(app: &AppHandle, message: &str) {
     }
 }
 
+/// The tray's menu item that shows the main window.
+const SHOW_ITEM: &str = "show";
+/// The tray's menu item, and macOS's menu bar's, that quits.
+const QUIT_ITEM: &str = "quit";
+/// macOS's menu bar's item that closes the main window.
+#[cfg(target_os = "macos")]
+const CLOSE_WINDOW_ITEM: &str = "close-window";
+
+/// Does what the menu item `event` names asks, of the tray's menu or macOS's menu bar.
+pub(crate) fn chosen(app: &AppHandle, event: tauri::menu::MenuEvent) {
+    match event.id.as_ref() {
+        SHOW_ITEM => show_main(app),
+        QUIT_ITEM => crate::ask_to_quit(app),
+        #[cfg(target_os = "macos")]
+        CLOSE_WINDOW_ITEM => {
+            if let Some(window) = app.get_webview_window(MAIN)
+                && let Err(error) = window.close()
+            {
+                tracing::warn!("could not close the window: {error}");
+            }
+        }
+        _ => {}
+    }
+}
+
+/// macOS's menu bar: the system's usual items, but for Cmd+W, which closes an editor tab in Meka
+/// Studio, leaving Shift+Cmd+W to close the window, as Safari has it, and Quit, which asks first
+/// while a turn runs.
+#[cfg(target_os = "macos")]
+pub(crate) fn menu_bar(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::menu::{AboutMetadata, PredefinedMenuItem, Submenu};
+    let info = app.package_info();
+    let name = info.name.clone();
+    let about = AboutMetadata {
+        name: Some(name.clone()),
+        version: Some(info.version.to_string()),
+        copyright: app.config().bundle.copyright.clone(),
+        ..Default::default()
+    };
+    let menu = Menu::with_items(app, &[
+        &Submenu::with_items(app, &name, true, &[
+            &PredefinedMenuItem::about(app, None, Some(about))?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::services(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::show_all(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &MenuItem::with_id(app, QUIT_ITEM, format!("Quit {name}"), true, Some("Cmd+Q"))?,
+        ])?,
+        &Submenu::with_items(app, "File", true, &[&MenuItem::with_id(
+            app,
+            CLOSE_WINDOW_ITEM,
+            "Close Window",
+            true,
+            Some("Cmd+Shift+W"),
+        )?])?,
+        &Submenu::with_items(app, "Edit", true, &[
+            &PredefinedMenuItem::undo(app, None)?,
+            &PredefinedMenuItem::redo(app, None)?,
+            &PredefinedMenuItem::separator(app)?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &PredefinedMenuItem::select_all(app, None)?,
+        ])?,
+        &Submenu::with_items(app, "View", true, &[&PredefinedMenuItem::fullscreen(
+            app, None,
+        )?])?,
+        &Submenu::with_items(app, "Window", true, &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+        ])?,
+    ])?;
+    app.set_menu(menu)?;
+    Ok(())
+}
+
+/// Turns off WebView2's own browser keys, such as Ctrl+P, which prints the window, and Ctrl+F,
+/// which opens its own find bar, so the window's keys are Meka Studio's, as on the other systems.
+#[cfg(windows)]
+fn without_browser_keys(window: &WebviewWindow) {
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
+    use windows_core::Interface;
+    let set = window.with_webview(|webview| {
+        // SAFETY: COM calls on the window's own webview, on the thread it runs on.
+        let turned_off = unsafe {
+            webview
+                .controller()
+                .CoreWebView2()
+                .and_then(|core| core.Settings())
+                .and_then(|settings| settings.cast::<ICoreWebView2Settings3>())
+                .and_then(|settings| settings.SetAreBrowserAcceleratorKeysEnabled(false))
+        };
+        if let Err(error) = turned_off {
+            tracing::warn!("could not turn the webview's own keys off: {error}");
+        }
+    });
+    if let Err(error) = set {
+        tracing::warn!("could not turn the webview's own keys off: {error}");
+    }
+}
+
 /// The tray icon: a click shows the window, and its menu shows it or quits.
 pub(crate) fn tray(app: &AppHandle) -> tauri::Result<()> {
     let name = &app.package_info().name;
-    let show = MenuItem::with_id(app, "show", format!("Show {name}"), true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", format!("Quit {name}"), true, None::<&str>)?;
+    let show = MenuItem::with_id(app, SHOW_ITEM, format!("Show {name}"), true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, QUIT_ITEM, format!("Quit {name}"), true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &quit])?;
     let mut tray = TrayIconBuilder::with_id("main")
         .tooltip(name)
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|app, event| match event.id.as_ref() {
-            "show" => show_main(app),
-            "quit" => crate::quit(app),
-            _ => {}
-        })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
@@ -528,6 +714,21 @@ mod tests {
         assert!(is_start_page(&at("tauri://localhost/index.html")));
         assert!(is_start_page(&at("http://tauri.localhost/index.html")));
         assert!(!is_start_page(&at("https://example.com/")));
+    }
+
+    #[test]
+    fn the_window_zooms_by_the_steps_browsers_take() {
+        assert_eq!(zoomed(100, ZoomStep::In), 110);
+        assert_eq!(zoomed(100, ZoomStep::Out), 90);
+        assert_eq!(zoomed(300, ZoomStep::In), 300, "the largest");
+        assert_eq!(zoomed(50, ZoomStep::Out), 50, "the smallest");
+        assert_eq!(zoomed(133, ZoomStep::In), 150, "from between steps");
+        assert_eq!(zoomed(133, ZoomStep::Out), 125, "from between steps");
+        assert_eq!(zoomed(250, ZoomStep::Reset), 100);
+        assert!(
+            (scale(400) - 3.0).abs() < f64::EPSILON,
+            "a kept zoom past the largest"
+        );
     }
 
     #[test]

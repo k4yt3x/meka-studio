@@ -4,7 +4,6 @@
 use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, bail};
-use futures_util::StreamExt;
 use meka_studio::desktop::Update;
 use serde::Deserialize;
 use tokio::time::Instant;
@@ -81,14 +80,9 @@ async fn latest(client: &reqwest::Client) -> anyhow::Result<String> {
         .send()
         .await?
         .error_for_status()?;
-    let mut body = Vec::new();
-    let mut stream = response.bytes_stream();
-    while let Some(chunk) = stream.next().await {
-        body.extend_from_slice(&chunk?);
-        if body.len() > MAX_ANSWER_BYTES {
-            bail!("GitHub's answer is larger than {MAX_ANSWER_BYTES} bytes");
-        }
-    }
+    let body = crate::http::read_at_most(response, MAX_ANSWER_BYTES)
+        .await
+        .context("could not read GitHub's answer")?;
     let release: Release =
         serde_json::from_slice(&body).context("GitHub's answer is not a release")?;
     if numbers(&release.tag_name).is_none() {

@@ -1,5 +1,6 @@
 //! What the app holds while it runs, and what it does for Meka Studio: system notifications, its
-//! settings, restarting Meka, and opening its folders. It keeps the main window's place too.
+//! settings, restarting Meka, opening its folders, quitting, and the window's zoom and full
+//! screen. It keeps the main window's place too.
 
 use std::{
     collections::HashMap,
@@ -12,6 +13,7 @@ use std::{
 
 use meka_studio::desktop::{
     DesktopSettings, DesktopState, Folder, Host, MekaProcess, Notification, ProcessState, Update,
+    ZoomStep,
 };
 use tauri::{AppHandle, WebviewWindow};
 use tauri_plugin_notification::NotificationExt;
@@ -19,7 +21,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::{
     files::{self, Memory, Paths, WindowPlace},
-    meka::Meka,
+    meka::{self, Meka, MekaApi},
     window,
 };
 
@@ -84,6 +86,8 @@ pub(crate) struct Shell {
     memory: Mutex<Memory>,
     update: Mutex<Option<Update>>,
     meka: OnceLock<Arc<Meka>>,
+    /// How the app reaches Meka's API, once Meka is started.
+    meka_api: OnceLock<MekaApi>,
     /// Stops Meka Studio's server, and the task it runs on.
     server: Mutex<
         Option<(
@@ -95,8 +99,13 @@ pub(crate) struct Shell {
     pub(crate) settings_changed: tokio::sync::Notify,
     /// Whether the app is quitting.
     pub(crate) quitting: AtomicBool,
+    /// Whether the app is asking whether to quit, so it asks once at a time.
+    pub(crate) asking_to_quit: AtomicBool,
+    /// Whether the main window has left the start page for Meka Studio, which it never goes back
+    /// to.
+    pub(crate) entered: AtomicBool,
     last_notification: AtomicI32,
-    /// Where the main window was when last neither maximized nor minimized.
+    /// Where the main window was when last neither maximized, minimized nor over the whole screen.
     place: Mutex<Option<WindowPlace>>,
 }
 
@@ -112,16 +121,19 @@ impl Shell {
             memory: Mutex::new(memory),
             update: Mutex::new(None),
             meka: OnceLock::new(),
+            meka_api: OnceLock::new(),
             server: Mutex::new(None),
             settings_changed: tokio::sync::Notify::new(),
             quitting: AtomicBool::new(false),
+            asking_to_quit: AtomicBool::new(false),
+            entered: AtomicBool::new(false),
             last_notification: AtomicI32::new(0),
             place: Mutex::new(None),
         }
     }
 
-    /// Notes where the main window `window` is, unless it is maximized or minimized, as it `moved`
-    /// or resized.
+    /// Notes where the main window `window` is, as it `moved` or resized, unless it is maximized,
+    /// minimized or over the whole screen.
     pub(crate) fn note_place(&self, window: &WebviewWindow, moved: bool) {
         match window::normal_place(window) {
             Ok(Some(place)) => {
@@ -172,11 +184,22 @@ impl Shell {
         }
     }
 
-    /// Keeps the Meka the app runs.
-    pub(crate) fn keep_meka(&self, meka: Arc<Meka>) {
-        if self.meka.set(meka).is_err() {
+    /// Keeps the Meka the app runs, and how to reach its API.
+    pub(crate) fn keep_meka(&self, meka: Arc<Meka>, api: MekaApi) {
+        if self.meka.set(meka).is_err() || self.meka_api.set(api).is_err() {
             tracing::error!("Meka was started twice");
         }
+    }
+
+    /// How many sessions run a turn; none where Meka cannot say, which is logged.
+    pub(crate) async fn turns_running(&self) -> usize {
+        let Some(api) = self.meka_api.get() else {
+            return 0;
+        };
+        meka::turns_running(api).await.unwrap_or_else(|error| {
+            tracing::warn!("could not ask Meka whether turns run: {error:#}");
+            0
+        })
     }
 
     /// Keeps the way to stop Meka Studio's server.
@@ -333,6 +356,28 @@ impl Host for Shell {
         self.app
             .opener()
             .open_path(path.to_string_lossy(), None::<&str>)?;
+        Ok(())
+    }
+
+    fn quit(&self) {
+        crate::ask_to_quit(&self.app);
+    }
+
+    fn zoom(&self, step: ZoomStep) -> anyhow::Result<()> {
+        // Under the memory's lock, so steps one after another each start from the last.
+        let mut zoomed = Ok(());
+        self.remember(|memory| {
+            let zoom = window::zoomed(memory.zoom.unwrap_or(100), step);
+            zoomed = window::zoom_main(&self.app, zoom);
+            if zoomed.is_ok() {
+                memory.zoom = (zoom != 100).then_some(zoom);
+            }
+        });
+        Ok(zoomed?)
+    }
+
+    fn toggle_full_screen(&self) -> anyhow::Result<()> {
+        window::toggle_full_screen(&self.app)?;
         Ok(())
     }
 }

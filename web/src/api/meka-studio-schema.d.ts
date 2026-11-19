@@ -324,6 +324,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/desktop/quit': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['quit'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/desktop/settings': {
     parameters: {
       query?: never;
@@ -334,6 +350,38 @@ export interface paths {
     get?: never;
     put: operations['save_settings'];
     post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/desktop/window/full-screen': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['toggle_full_screen'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/desktop/window/zoom': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['zoom'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1419,6 +1467,15 @@ export interface components {
       /** @description Each folder, at most 64, as the events name it. */
       paths: string[];
     };
+    /**
+     * @description A step of the window's zoom.
+     * @enum {string}
+     */
+    ZoomStep: 'in' | 'out' | 'reset';
+    /** @description How the window's zoom is to change. */
+    Zooming: {
+      step: components['schemas']['ZoomStep'];
+    };
   };
   responses: never;
   parameters: never;
@@ -2115,6 +2172,33 @@ export interface operations {
       };
     };
   };
+  quit: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The app quits, asking first while a turn runs */
+      202: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not the desktop app */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
   save_settings: {
     parameters: {
       query?: never;
@@ -2136,6 +2220,64 @@ export interface operations {
         content: {
           'application/json': components['schemas']['DesktopState'];
         };
+      };
+      /** @description Not the desktop app */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  toggle_full_screen: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The window is over the whole screen, or as it was before */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description Not the desktop app */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  zoom: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Zooming'];
+      };
+    };
+    responses: {
+      /** @description The window is zoomed, and opens so from then on */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
       };
       /** @description Not the desktop app */
       404: {

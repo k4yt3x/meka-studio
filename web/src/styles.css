@@ -423,6 +423,12 @@ progress:where(:not([data-surface^='monaco'] *)) {
   border-radius: 4px;
   color: var(--muted);
 }
+.shortcut-or {
+  align-self: center;
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 0.73rem;
+}
 .shortcut-existing {
   margin-top: 14px;
   padding-top: 14px;
@@ -2033,37 +2039,44 @@ pre.bounded {
   width: auto;
   min-width: 150px;
 }
-.pdf-find {
-  flex-shrink: 0;
+/* A bar to find text with, in a PDF or the conversation. */
+.find-bar {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 6px 3px 12px;
-  border-bottom: 1px solid var(--border);
   font-size: 0.75rem;
 }
-.pdf-find input {
+.find-bar input {
   flex: 1;
   min-width: 0;
-  max-width: 320px;
   height: 26px;
   min-height: 26px;
   padding: 0 8px;
   border-radius: 5px;
   font-size: 0.78rem;
 }
-.pdf-find-count {
-  margin-right: auto;
-  padding-left: 4px;
+.find-bar-count {
   color: var(--muted);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
-.pdf-find .button-icon {
+.find-bar .button-icon {
   width: 26px;
   height: 26px;
   min-height: 26px;
   padding: 5px;
+}
+.pdf-find {
+  flex-shrink: 0;
+  gap: 4px;
+  padding: 3px 6px 3px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.pdf-find input {
+  max-width: 320px;
+}
+.pdf-find .find-bar-count {
+  margin-right: auto;
+  padding-left: 4px;
 }
 /* On a phone the editor covers the screen, with a bar to close it, pick a file, and save. */
 .code-sheet {
@@ -3392,6 +3405,39 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
 .session-main[data-anchor='area'] .conversation-width {
   /* The conversation area's center; the percentage resolves where the variable is used. */
   --conversation-center: 50%;
+}
+/* Finding in the conversation, in the desktop app: a bar over its top right, as editors have. */
+.conversation-find {
+  position: absolute;
+  top: 8px;
+  right: 20px;
+  z-index: 5;
+  gap: 2px;
+  width: min(360px, calc(100% - 40px));
+  padding: 4px 4px 4px 6px;
+  background: var(--raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow);
+}
+.conversation-find .find-bar-count {
+  padding: 0 6px;
+}
+.conversation-history ::highlight(conversation-find) {
+  background-color: #fde68a;
+  color: #202632;
+}
+.conversation-history ::highlight(conversation-find-current) {
+  background-color: #f59e0b;
+  color: #111;
+}
+:root.dark .conversation-history ::highlight(conversation-find) {
+  background-color: #6b5314;
+  color: #ebebeb;
+}
+:root.dark .conversation-history ::highlight(conversation-find-current) {
+  background-color: #d97706;
+  color: #111;
 }
 .conversation-scroll {
   display: flex;

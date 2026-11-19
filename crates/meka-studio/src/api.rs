@@ -104,6 +104,9 @@ pub(crate) fn signed_in() -> OpenApiRouter<App> {
         .routes(routes!(desktop::save_settings))
         .routes(routes!(desktop::restart_meka))
         .routes(routes!(desktop::open_folder))
+        .routes(routes!(desktop::quit))
+        .routes(routes!(desktop::zoom))
+        .routes(routes!(desktop::toggle_full_screen))
         .routes(routes!(desktop::test_notification))
         // Saving text takes a larger body than the rest; within, its limit is what holds.
         .merge(

@@ -1,13 +1,21 @@
 import { useEffect, useEffectEvent } from 'react';
-import { appleKeyboard, matchesShortcut, shortcutAllowed, type Shortcut } from './shortcut-keys';
+import { useDesktopApp } from '../connections/context';
+import {
+  appleKeyboard,
+  matchesShortcut,
+  shortcutAllowed,
+  yieldsToTyping,
+  type Shortcut,
+} from './shortcut-keys';
 
 export function useShortcut(action: Shortcut, run: () => void, enabled = true) {
+  const desktop = useDesktopApp();
   const handle = useEffectEvent((event: KeyboardEvent) => {
     if (
       event.defaultPrevented ||
       event.isComposing ||
       event.keyCode === 229 ||
-      !matchesShortcut(action, event, appleKeyboard())
+      !matchesShortcut(action, event, { apple: appleKeyboard(), desktop })
     )
       return;
     // Do not reject getModifierState('AltGraph'): Firefox also sets it for ordinary
@@ -20,8 +28,7 @@ export function useShortcut(action: Shortcut, run: () => void, enabled = true) {
           'input, textarea, select, [contenteditable]:not([contenteditable="false"]), [role="textbox"], [role="combobox"], [role="spinbutton"]',
         ),
       );
-    // Preserve paragraph navigation and select controls, particularly Option+arrows on macOS.
-    if (editing && (action === 'previousSession' || action === 'nextSession')) return;
+    if (editing && yieldsToTyping(action)) return;
     event.preventDefault();
     const overlay = Boolean(
       document.querySelector(

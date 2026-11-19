@@ -37,6 +37,7 @@ import { useMediaQuery } from '../components/media-query';
 import { useOverlayPadding } from '../components/visual-viewport';
 import { useDarkTheme } from '../components/theme';
 import { appleKeyboard, shortcutHint } from '../components/shortcut-keys';
+import { useShortcut } from '../components/use-shortcut';
 import { focusMessage, mentionPath, useWorkspace } from '../components/workspace';
 import { useRuntime, useSettings } from '../connections/context';
 import { EDITOR_FONT } from '../connections/storage';
@@ -87,11 +88,14 @@ import { PdfView } from './pdf-view';
 export function EditorPane({
   place,
   full,
+  shown,
   onHide,
 }: {
   place: string;
   /** Over the whole screen, as on a phone. */
   full: boolean;
+  /** Whether it is in sight, where the keys that close and step through its tabs work. */
+  shown: boolean;
   /** Hides the pane, leaving its tabs open, as a phone's close button does. */
   onHide: () => void;
 }) {
@@ -187,6 +191,21 @@ export function EditorPane({
     );
     if (ids.length) void queries.invalidateQueries({ queryKey: ['gateway'] });
   }
+  /** Shows the tab `step` after the one shown, round from the last to the first. */
+  function stepTab(step: -1 | 1) {
+    const at = tabs.active === undefined ? -1 : tabs.keys.indexOf(tabs.active);
+    const next = tabs.keys.at((at + step) % tabs.keys.length);
+    if (next !== undefined) store.show(place, next);
+  }
+  useShortcut(
+    'closeTab',
+    () => {
+      if (tabs.active) close([tabs.active]);
+    },
+    shown && !closing,
+  );
+  useShortcut('nextTab', () => stepTab(1), shown && tabs.keys.length > 1);
+  useShortcut('previousTab', () => stepTab(-1), shown && tabs.keys.length > 1);
   /** The terminal `id`'s shell ended: its tab goes, and the keyboard goes back to the message. */
   function ended(id: string, body: HTMLElement | null) {
     if (body?.contains(document.activeElement)) focusMessage();

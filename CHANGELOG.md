@@ -30,6 +30,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - A file clicked in Files or Git opens in a preview tab that the next one replaces until kept.
 - On Windows, a drive button before the path in Files shows the tree from another drive.
 - PDFs open in the editor, with zoom, find, links and selectable text, and follow changes on disk.
+- Quitting the desktop app, with Ctrl+Q (Cmd+Q) too, asks first while a turn runs.
+- The desktop app reloads Meka Studio with Ctrl+R or F5, leaving Meka running.
+- The desktop app goes back and forward with Alt+arrows (Cmd+[ and Cmd+]) or the mouse's buttons.
+- The desktop app zooms its window with Ctrl+=, Ctrl+- and Ctrl+0, and goes full screen with F11.
+- In the desktop app, Ctrl+W closes the editor's tab, and Ctrl+Tab and Ctrl+Shift+Tab switch tabs.
+- In the desktop app, Ctrl+N starts a session, Ctrl+, opens Settings, and Ctrl+F finds text.
 
 ### Changed
 

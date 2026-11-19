@@ -193,6 +193,8 @@ pub(crate) struct Memory {
     pub(crate) told_update: Option<String>,
     /// Where the main window was, to open it there again.
     pub(crate) window: Option<WindowPlace>,
+    /// The main window's zoom, in percent, where it is not 100.
+    pub(crate) zoom: Option<u16>,
 }
 
 /// The main window's place on the screen, in physical pixels: its outer edges when it was last
@@ -356,6 +358,7 @@ mod tests {
                 height: 840,
                 maximized: true,
             }),
+            zoom: Some(125),
         };
         write_json(&path, &memory).unwrap();
         assert_eq!(read_memory(&path), memory);

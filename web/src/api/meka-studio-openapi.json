@@ -720,6 +720,27 @@
         }
       }
     },
+    "/api/desktop/quit": {
+      "post": {
+        "tags": ["desktop"],
+        "operationId": "quit",
+        "responses": {
+          "202": {
+            "description": "The app quits, asking first while a turn runs"
+          },
+          "404": {
+            "description": "Not the desktop app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/desktop/settings": {
       "put": {
         "tags": ["desktop"],
@@ -744,6 +765,58 @@
                 }
               }
             }
+          },
+          "404": {
+            "description": "Not the desktop app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/desktop/window/full-screen": {
+      "post": {
+        "tags": ["desktop"],
+        "operationId": "toggle_full_screen",
+        "responses": {
+          "204": {
+            "description": "The window is over the whole screen, or as it was before"
+          },
+          "404": {
+            "description": "Not the desktop app",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/desktop/window/zoom": {
+      "post": {
+        "tags": ["desktop"],
+        "operationId": "zoom",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Zooming"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "The window is zoomed, and opens so from then on"
           },
           "404": {
             "description": "Not the desktop app",
@@ -3473,6 +3546,21 @@
               "type": "string"
             },
             "description": "Each folder, at most 64, as the events name it."
+          }
+        }
+      },
+      "ZoomStep": {
+        "type": "string",
+        "description": "A step of the window's zoom.",
+        "enum": ["in", "out", "reset"]
+      },
+      "Zooming": {
+        "type": "object",
+        "description": "How the window's zoom is to change.",
+        "required": ["step"],
+        "properties": {
+          "step": {
+            "$ref": "#/components/schemas/ZoomStep"
           }
         }
       }

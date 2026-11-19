@@ -760,7 +760,7 @@ export function SessionsPage({
                   onCommit={(width) => commitWidth('conversation', width)}
                   onCancel={() => setResizing(undefined)}
                 />
-                <EditorPane place={filesPlace} full={false} onHide={() => {}} />
+                <EditorPane place={filesPlace} full={false} shown={shown.wide} onHide={() => {}} />
               </div>
             )}
             {shownPanel && (
@@ -825,7 +825,12 @@ export function SessionsPage({
             )}
             {!desktop && editorTabs.keys.length > 0 && (
               <div className="code-sheet" hidden={!mobileEditor}>
-                <EditorPane place={filesPlace} full onHide={() => setMobileEditor(false)} />
+                <EditorPane
+                  place={filesPlace}
+                  full
+                  shown={mobileEditor}
+                  onHide={() => setMobileEditor(false)}
+                />
               </div>
             )}
             {!desktop && (

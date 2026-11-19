@@ -7,6 +7,7 @@
 
 mod drops;
 mod files;
+mod http;
 mod meka;
 mod shell;
 #[cfg(windows)]
@@ -28,7 +29,7 @@ use tracing_subscriber::EnvFilter;
 
 use crate::{
     files::Paths,
-    meka::{Launch, Meka},
+    meka::{Launch, Meka, MekaApi},
     shell::{Opens, Shell},
 };
 
@@ -76,7 +77,8 @@ fn main() {
         }
     };
     app.run(|app, event| match event {
-        // Quitting from the system, such as Cmd+Q on macOS, quits as the app's own Quit does.
+        // The event loop ending by itself, as when its last window is gone, stops the server and
+        // Meka first.
         RunEvent::ExitRequested { api, .. } if app.try_state::<Arc<Shell>>().is_some() => {
             api.prevent_exit();
             quit(app);
@@ -117,6 +119,36 @@ pub(crate) fn quit(app: &tauri::AppHandle) {
         // hidden waits for one more message before it sees the request, which may never come.
         app.cleanup_before_exit();
         std::process::exit(0);
+    });
+}
+
+/// Quits as a person asks, from the keys, the menus or closing the window: while turns run, first
+/// asking whether to stop them. One question shows at a time.
+pub(crate) fn ask_to_quit(app: &tauri::AppHandle) {
+    let Some(shell) = app
+        .try_state::<Arc<Shell>>()
+        .map(|shell| Arc::clone(&shell))
+    else {
+        quit(app);
+        return;
+    };
+    if shell.asking_to_quit.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        let running = shell.turns_running().await;
+        if running == 0 {
+            quit(&app);
+            return;
+        }
+        let answering = app.clone();
+        window::ask_to_stop_turns(&app, running, move |quitting| {
+            shell.asking_to_quit.store(false, Ordering::SeqCst);
+            if quitting {
+                quit(&answering);
+            }
+        });
     });
 }
 
@@ -193,6 +225,9 @@ fn setup(app: &tauri::AppHandle) -> anyhow::Result<()> {
     app.manage(Arc::clone(&shell));
     let listener = studio_listener(&shell)?;
     let origin = format!("http://{}", listener.local_addr()?).parse()?;
+    app.on_menu_event(window::chosen);
+    #[cfg(target_os = "macos")]
+    window::menu_bar(app)?;
     window::open_main(app, &origin)?;
     window::tray(app)?;
     let clicked = app.clone();
@@ -243,8 +278,12 @@ async fn start(
         log: paths.logs.join("meka.log"),
         home: app.path().home_dir()?,
     };
-    let meka = Arc::new(Meka::start(launch.clone())?);
-    shell.keep_meka(Arc::clone(&meka));
+    let api = MekaApi {
+        url: format!("http://{}", launch.address).parse()?,
+        token,
+    };
+    let meka = Arc::new(Meka::start(launch)?);
+    shell.keep_meka(Arc::clone(&meka), api.clone());
     // The server starts once Meka answers, so its first look at Meka finds it there.
     let mut process = meka.watch();
     if tokio::time::timeout(
@@ -259,8 +298,8 @@ async fn start(
     let server = Server::open(Options {
         listener: tokio::net::TcpListener::from_std(listener)?,
         state_dir: paths.studio.clone(),
-        meka_url: format!("http://{}", launch.address).parse()?,
-        meka_token: token,
+        meka_url: api.url,
+        meka_token: api.token,
         host: Arc::clone(shell) as Arc<dyn meka_studio::desktop::Host>,
     })
     .await?;

@@ -403,6 +403,56 @@ fn stop(child: &mut Child, input: Option<ChildStdin>) -> anyhow::Result<ExitStat
     Ok(child.wait()?)
 }
 
+/// How the app reaches Meka's API: where Meka serves, and the token it takes from the app.
+#[derive(Clone)]
+pub(crate) struct MekaApi {
+    pub(crate) url: url::Url,
+    pub(crate) token: String,
+}
+
+/// How long the app waits for Meka to say whether turns run.
+const ASK_WAIT: Duration = Duration::from_secs(3);
+
+/// The most of Meka's list of sessions that is read.
+const MAX_LIST_BYTES: usize = 16 * 1024 * 1024;
+
+/// How many sessions run a turn, sub-agents among them: of the first 200 Meka lists, its pinned
+/// sessions and then those that changed last, as starting a turn changes a session.
+pub(crate) async fn turns_running(api: &MekaApi) -> anyhow::Result<usize> {
+    let response = reqwest::Client::builder()
+        .timeout(ASK_WAIT)
+        .build()?
+        .get(
+            api.url
+                .join("v1/sessions?limit=200&include_children=true")?,
+        )
+        .bearer_auth(&api.token)
+        .send()
+        .await?
+        .error_for_status()?;
+    let body = crate::http::read_at_most(response, MAX_LIST_BYTES).await?;
+    running_in(&body)
+}
+
+/// How many of the sessions Meka listed in `body` run a turn.
+fn running_in(body: &[u8]) -> anyhow::Result<usize> {
+    #[derive(serde::Deserialize)]
+    struct Listed {
+        sessions: Vec<Row>,
+    }
+    #[derive(serde::Deserialize)]
+    struct Row {
+        turn_in_flight: bool,
+    }
+    let listed: Listed =
+        serde_json::from_slice(body).context("Meka's list of sessions could not be read")?;
+    Ok(listed
+        .sessions
+        .iter()
+        .filter(|row| row.turn_in_flight)
+        .count())
+}
+
 /// What a free loopback port is now, for Meka to serve on.
 pub(crate) fn free_address() -> anyhow::Result<SocketAddr> {
     let probe = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -475,6 +525,18 @@ mod tests {
             "127.0.0.1:41000",
             "--exit-on-stdin-close"
         ]);
+    }
+
+    #[test]
+    fn turns_are_counted_from_the_sessions_running_them() {
+        let listed = br#"{"sessions":[
+            {"id":"a","turn_in_flight":true,"title":"One"},
+            {"id":"b","turn_in_flight":false},
+            {"id":"c","turn_in_flight":true}
+        ],"next_cursor":null}"#;
+        assert_eq!(running_in(listed).unwrap(), 2);
+        assert_eq!(running_in(br#"{"sessions":[]}"#).unwrap(), 0);
+        assert!(running_in(b"not json").is_err());
     }
 
     #[test]

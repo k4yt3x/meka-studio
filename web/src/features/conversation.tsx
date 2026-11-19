@@ -84,6 +84,7 @@ import {
   type ToolResultBlock,
   type ToolUseBlock,
 } from './conversation-history';
+import { ConversationFind } from './conversation-find';
 import { MessageComposer } from '../components/message-composer';
 import { CopyAction, HistoryAction, MessageEditor, TurnActions } from './turn-actions';
 import { ChecklistStrip } from './checklist-strip';
@@ -517,6 +518,7 @@ export function Conversation({ state }: { state: SessionState }) {
   return (
     <ImageViewerProvider onReturnFocus={() => scroller.current?.focus({ preventScroll: true })}>
       <div className="conversation-wrap">
+        <ConversationFind scroller={scroller} content={content} />
         <div
           ref={scroller}
           className="conversation-scroll"

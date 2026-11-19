@@ -9,11 +9,12 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::{
     app::App,
     auth::Signed,
-    desktop::{Desktop, DesktopSettings, DesktopState, Folder, Host, Notification},
+    desktop::{Desktop, DesktopSettings, DesktopState, Folder, Host, Notification, ZoomStep},
     error::{ApiError, ApiResult},
 };
 
@@ -126,6 +127,62 @@ pub(crate) async fn open_folder(
     Path(folder): Path<Folder>,
 ) -> ApiResult<StatusCode> {
     host(&app)?.open_folder(folder)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/desktop/quit",
+    tag = "desktop",
+    responses(
+        (status = 202, description = "The app quits, asking first while a turn runs"),
+        (status = 404, description = "Not the desktop app", body = crate::error::Problem)
+    )
+)]
+pub(crate) async fn quit(State(app): State<App>, _signed: Signed) -> ApiResult<StatusCode> {
+    host(&app)?.quit();
+    Ok(StatusCode::ACCEPTED)
+}
+
+/// How the window's zoom is to change.
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct Zooming {
+    pub(crate) step: ZoomStep,
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/desktop/window/zoom",
+    tag = "desktop",
+    request_body = Zooming,
+    responses(
+        (status = 204, description = "The window is zoomed, and opens so from then on"),
+        (status = 404, description = "Not the desktop app", body = crate::error::Problem)
+    )
+)]
+pub(crate) async fn zoom(
+    State(app): State<App>,
+    _signed: Signed,
+    Json(zooming): Json<Zooming>,
+) -> ApiResult<StatusCode> {
+    host(&app)?.zoom(zooming.step)?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/desktop/window/full-screen",
+    tag = "desktop",
+    responses(
+        (status = 204, description = "The window is over the whole screen, or as it was before"),
+        (status = 404, description = "Not the desktop app", body = crate::error::Problem)
+    )
+)]
+pub(crate) async fn toggle_full_screen(
+    State(app): State<App>,
+    _signed: Signed,
+) -> ApiResult<StatusCode> {
+    host(&app)?.toggle_full_screen()?;
     Ok(StatusCode::NO_CONTENT)
 }
 

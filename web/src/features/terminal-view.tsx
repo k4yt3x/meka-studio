@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Terminal as Xterm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
-import { useRuntime } from '../connections/context';
+import { useDesktopApp, useRuntime } from '../connections/context';
 import { Button } from '../components/ui/button';
 import { useMediaQuery } from '../components/media-query';
 import { TERMINAL_FONT } from '../connections/storage';
@@ -10,15 +10,22 @@ import { appleKeyboard, matchesShortcut, type Shortcut } from '../components/sho
 import { followZoomWheel, zoomStep } from '../components/text-zoom';
 import type { Gateway } from '../api/gateway';
 
-/** The page's shortcuts that reach it from the terminal. */
+/**
+ * The page's shortcuts that reach it from the terminal. The others' keys are the shell's, such as
+ * Ctrl+R, Ctrl+W, F5 and Alt with the arrows.
+ */
 const PAGE_SHORTCUTS: readonly Shortcut[] = [
   'toggleTerminal',
   'newTerminal',
+  'nextTab',
+  'previousTab',
   'toggleFiles',
   'toggleGit',
   'toggleContext',
   'toggleTasks',
   'toggleSchedules',
+  'fullScreen',
+  'openSettings',
 ];
 
 /** What the extra keys type. */
@@ -76,6 +83,7 @@ export function TerminalView({
   onEnded: () => void;
 }) {
   const runtime = useRuntime();
+  const desktop = useDesktopApp();
   const coarse = useMediaQuery('(pointer: coarse)');
   const host = useRef<HTMLDivElement>(null);
   const socket = useRef<WebSocket | undefined>(undefined);
@@ -87,11 +95,13 @@ export function TerminalView({
   const ended = useRef(onEnded);
   const zoom = useRef(onZoom);
   const focus = useRef(takeFocus);
+  const inDesktop = useRef(desktop);
   const initialFont = useRef(fontSize);
   useEffect(() => {
     ended.current = onEnded;
     zoom.current = onZoom;
     focus.current = takeFocus;
+    inDesktop.current = desktop;
   });
   useEffect(() => {
     const current = terminal.current;
@@ -125,10 +135,9 @@ export function TerminalView({
         Math.min(TERMINAL_FONT.max, (xterm.options.fontSize ?? TERMINAL_FONT.default) + step),
       );
     xterm.attachCustomKeyEventHandler((event) => {
-      // The shortcuts that show the terminal and the panels in its place are the page's, not keys
-      // for the shell.
-      if (PAGE_SHORTCUTS.some((action) => matchesShortcut(action, event, appleKeyboard())))
-        return false;
+      // The page's shortcuts, to move among the tabs and panels, are not keys for the shell.
+      const context = { apple: appleKeyboard(), desktop: inDesktop.current };
+      if (PAGE_SHORTCUTS.some((action) => matchesShortcut(action, event, context))) return false;
       // Ctrl+Shift+- is the shell's: undo, in readline and Emacs.
       if (event.shiftKey && event.code === 'Minus') return true;
       // The keys that size the page size the terminal's text instead.

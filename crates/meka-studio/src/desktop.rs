@@ -32,6 +32,24 @@ pub trait Host: Send + Sync + 'static {
     fn restart_meka(&self);
     /// Opens `folder` in the system's file manager.
     fn open_folder(&self, folder: Folder) -> anyhow::Result<()>;
+    /// Quits, as the person asked: while a turn runs, the app asks first whether to stop it.
+    fn quit(&self);
+    /// Zooms the window by `step`.
+    fn zoom(&self, step: ZoomStep) -> anyhow::Result<()>;
+    /// Shows the window over the whole screen, or as it was before.
+    fn toggle_full_screen(&self) -> anyhow::Result<()>;
+}
+
+/// A step of the window's zoom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ZoomStep {
+    /// Larger.
+    In,
+    /// Smaller.
+    Out,
+    /// Back to the window's own size.
+    Reset,
 }
 
 /// A folder of the desktop app's that the interface can open in the file manager.

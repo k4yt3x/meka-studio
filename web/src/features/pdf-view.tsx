@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown, ChevronUp, RotateCw, Search, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { Check, RotateCw, Search, ZoomIn, ZoomOut } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { ErrorNotice, Field, Loading } from '../components/common';
+import { FindBar } from '../components/find-bar';
 import { appleKeyboard } from '../components/shortcut-keys';
 import { followZoomWheel, zoomStep } from '../components/text-zoom';
 import { useOverlayPadding } from '../components/visual-viewport';
@@ -269,64 +270,24 @@ export function PdfView({
     <>
       {bar(tools)}
       <div ref={host} className="pdf-view">
-        {finding && (
-          <div className="pdf-find">
-            <input
-              ref={findField}
-              aria-label="Find in the PDF"
-              placeholder="Find"
-              value={query}
-              onChange={(event) => find(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' && !event.nativeEvent.isComposing && query) {
-                  event.preventDefault();
-                  find(query, event.shiftKey ? 'previous' : 'next');
-                } else if (event.key === 'Escape') {
-                  event.preventDefault();
-                  stopFinding();
-                }
-              }}
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-            />
-            <span className="pdf-find-count" role="status">
-              {matches?.total
+        {query !== undefined && (
+          <FindBar
+            field={findField}
+            className="pdf-find"
+            label="Find in the PDF"
+            query={query}
+            count={
+              matches?.total
                 ? `${matches.current} of ${matches.total}`
                 : query && matches && !matches.searching
                   ? 'No matches'
-                  : ''}
-            </span>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Previous match"
-              title="Previous match (Shift+Enter)"
-              disabled={!matches?.total}
-              onClick={() => query && find(query, 'previous')}
-            >
-              <ChevronUp size={15} />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Next match"
-              title="Next match (Enter)"
-              disabled={!matches?.total}
-              onClick={() => query && find(query, 'next')}
-            >
-              <ChevronDown size={15} />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              aria-label="Stop finding"
-              title="Close (Escape)"
-              onClick={stopFinding}
-            >
-              <X size={15} />
-            </Button>
-          </div>
+                  : ''
+            }
+            found={Boolean(matches?.total)}
+            onQuery={(text) => find(text)}
+            onStep={(step) => query && find(query, step === 1 ? 'next' : 'previous')}
+            onStop={stopFinding}
+          />
         )}
         <div className="pdf-content">
           <div ref={container} className="pdf-scroll" tabIndex={0} hidden={covered}>

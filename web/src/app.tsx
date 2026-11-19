@@ -18,6 +18,7 @@ import { sidebarPage } from './features/sidebar-pages';
 import { SessionNavigationContext } from './features/session-navigation';
 import { useNewConversation, type NewSessionSetup } from './features/use-new-conversation';
 import { PromptCard } from './features/approval-cards';
+import { useDesktopWindowKeys } from './features/use-desktop-window-keys';
 
 export function App({ runtime }: { runtime: ConnectionRuntime }) {
   useEffect(trackFocusInput, []);
@@ -119,6 +120,8 @@ function Workspace() {
     () => setSettingsShown((shown) => (shown === 'shortcuts' ? undefined : 'shortcuts')),
     Boolean(state.api),
   );
+  useShortcut('openSettings', () => openSettings(), Boolean(state.api));
+  useDesktopWindowKeys();
   useEffect(() => {
     const media = window.matchMedia('(prefers-color-scheme: dark)');
     const apply = () => {

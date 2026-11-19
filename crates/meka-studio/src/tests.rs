@@ -1255,12 +1255,15 @@ async fn passkey_challenges_are_limited_per_network() {
     assert!(refused.headers().contains_key(header::RETRY_AFTER));
 }
 
-/// A stand-in desktop app: its settings, and the notifications and folders it was asked to show.
+/// A stand-in desktop app: its settings, the notifications and folders it was asked to show, the
+/// zoom steps it took, and how often it was asked to quit.
 #[derive(Default)]
 struct StandInHost {
     settings: Mutex<crate::desktop::DesktopSettings>,
     shown: Mutex<Vec<crate::desktop::Notification>>,
     opened: Mutex<Vec<crate::desktop::Folder>>,
+    zoomed: Mutex<Vec<crate::desktop::ZoomStep>>,
+    quits: Mutex<usize>,
 }
 
 impl crate::desktop::Host for StandInHost {
@@ -1291,6 +1294,19 @@ impl crate::desktop::Host for StandInHost {
 
     fn open_folder(&self, folder: crate::desktop::Folder) -> anyhow::Result<()> {
         self.opened.lock().unwrap().push(folder);
+        Ok(())
+    }
+
+    fn quit(&self) {
+        *self.quits.lock().unwrap() += 1;
+    }
+
+    fn zoom(&self, step: crate::desktop::ZoomStep) -> anyhow::Result<()> {
+        self.zoomed.lock().unwrap().push(step);
+        Ok(())
+    }
+
+    fn toggle_full_screen(&self) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -1435,6 +1451,34 @@ async fn the_desktop_window_is_signed_in_and_has_nothing_of_signing_in_to_manage
         [crate::desktop::Folder::Data],
         "only the app's own folders open, by name"
     );
+    for (step, status) in [
+        (r#"{"step":"in"}"#, StatusCode::NO_CONTENT),
+        (r#"{"step":"sideways"}"#, StatusCode::UNPROCESSABLE_ENTITY),
+        (r#"{"step":"reset"}"#, StatusCode::NO_CONTENT),
+    ] {
+        let zoomed = send(
+            &router,
+            from_the_window("POST", "/api/desktop/window/zoom", &cookie)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(step))
+                .unwrap(),
+        )
+        .await;
+        assert_eq!(zoomed.status(), status, "{step}");
+    }
+    assert_eq!(*host.zoomed.lock().unwrap(), [
+        crate::desktop::ZoomStep::In,
+        crate::desktop::ZoomStep::Reset
+    ]);
+    let quitting = send(
+        &router,
+        from_the_window("POST", "/api/desktop/quit", &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(quitting.status(), StatusCode::ACCEPTED);
+    assert_eq!(*host.quits.lock().unwrap(), 1);
 }
 
 #[tokio::test]
