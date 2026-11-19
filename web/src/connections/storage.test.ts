@@ -49,7 +49,7 @@ it('takes shared preferences from Meka Studio, checked, and leaves this deviceâ€
   const local = storage();
   const adapter = new BrowserStorage(local);
   adapter.dataSaver(true);
-  adapter.layout({ panel: 'context' });
+  adapter.layout({ sessionsWidth: 200 });
   adapter.conversationFontSize(18);
   const changes: unknown[] = [];
   adapter.subscribe(() => changes.push(adapter.getSnapshot()));
@@ -66,7 +66,7 @@ it('takes shared preferences from Meka Studio, checked, and leaves this deviceâ€
     completionSound: 'yes',
     providerOrder: { accounts: ['work', 'work', 3], profiles: 'opus' },
     dataSaver: false,
-    layout: { panel: 'files' },
+    layout: { sessionsWidth: 300 },
   });
   expect(adapter.getSnapshot()).toMatchObject({
     theme: 'system',
@@ -80,7 +80,7 @@ it('takes shared preferences from Meka Studio, checked, and leaves this deviceâ€
     expandThinking: true,
     completionSound: true,
     dataSaver: true,
-    layout: { panel: 'context' },
+    layout: { sessionsWidth: 200 },
   });
   expect(changes).toHaveLength(1);
   adapter.applyPreferences({ showTurnContext: true });
@@ -102,12 +102,12 @@ it('merges preference changes across tabs without replacing other settings or dr
   const other = new BrowserStorage(local);
   first.conversationMaxWidth(1250);
   other.conversationFontSize(18);
-  first.layout({ panel: 'tasks' });
+  first.layout({ sessionsCollapsed: true });
   other.refresh();
   expect(other.getSnapshot()).toMatchObject({
     conversationMaxWidth: 1250,
     conversationFontSize: 18,
-    layout: { panel: 'tasks' },
+    layout: { sessionsCollapsed: true },
   });
   expect(other.draft('meka-studio', 's')).toEqual(draft);
 });
@@ -168,27 +168,19 @@ it('bounds stored panel widths, fonts, widths and offsets', () => {
   });
 });
 
-it('opens the panel that was open before one showed at a time, at its width', () => {
+it('takes the panel width kept before one panel showed at a time', () => {
   const saved = (layout: Record<string, unknown>) => {
     const local = storage();
     local.setItem('meka-studio:v1:settings', JSON.stringify({ version: 1, layout }));
     return new BrowserStorage(local).getSnapshot().layout;
   };
   expect(saved({ filesOpen: true, detailsOpen: true, filesWidth: 520, detailsWidth: 300 })).toEqual(
-    { sessionsCollapsed: false, panel: 'files', panelWidth: 520 },
+    { sessionsCollapsed: false, panelWidth: 520 },
   );
-  expect(saved({ detailsOpen: true, detailsWidth: 300, terminalHeight: 400 })).toEqual({
+  expect(saved({ detailsOpen: true, detailsWidth: 300, panel: 'files' })).toEqual({
     sessionsCollapsed: false,
-    panel: 'context',
     panelWidth: 300,
   });
-  expect(saved({ panel: 'nowhere' })).toEqual({
-    sessionsCollapsed: false,
-  });
-  const adapter = new BrowserStorage(storage());
-  adapter.layout({ panel: 'schedules' });
-  adapter.layout({ panel: undefined });
-  expect(adapter.getSnapshot().layout).not.toHaveProperty('panel');
 });
 
 it('restores the reading defaults without touching the theme', () => {
@@ -303,6 +295,31 @@ it('keeps what each place has open, checked, the most recent places only', () =>
   store.forgetWorkspaces(['p10', 'p11']);
   expect(store.workspace('p10')).toBeUndefined();
   expect(store.workspace('p12')).toBeDefined();
+});
+
+it('keeps the side panel each session shows, a closed one apart from one never chosen', () => {
+  const local = storage();
+  const store = new BrowserStorage(local);
+  let changes = 0;
+  store.subscribe(() => changes++);
+  store.savePanel('s1', 'git');
+  store.savePanel('s2', null);
+  expect(changes).toBe(2);
+  expect(store.workspace('s1')).toEqual({ tabs: [], open: [], panel: 'git' });
+  expect(store.workspace('s2')?.panel).toBeNull();
+  expect(store.workspace('s3')?.panel).toBeUndefined();
+  // What else the place has open leaves its panel be, until the panel is forgotten.
+  store.saveWorkspace('s1', { tabs: ['/a.ts'], folder: '/work' });
+  expect(store.workspace('s1')?.panel).toBe('git');
+  store.savePanel('s1', undefined);
+  expect(store.workspace('s1')).toEqual({ tabs: ['/a.ts'], folder: '/work', open: [] });
+  store.savePanel('s2', undefined);
+  expect(store.workspace('s2')).toBeUndefined();
+  local.setItem(
+    'meka-studio:v1:workspaces',
+    JSON.stringify({ old: { tabs: ['/b.ts'], open: [], panel: 'outline', at: 1 } }),
+  );
+  expect(store.workspace('old')).toEqual({ tabs: ['/b.ts'], open: [] });
 });
 
 it('keeps where the editor was in the most recent files', () => {

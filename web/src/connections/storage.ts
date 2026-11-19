@@ -152,8 +152,6 @@ export interface ConversationAppearance {
 }
 export interface LayoutPreferences {
   sessionsCollapsed: boolean;
-  /** The side panel open, if any. */
-  panel?: Panel | undefined;
   sessionsWidth?: number;
   panelWidth?: number;
   /** The conversation's width beside the terminal. */
@@ -166,7 +164,7 @@ export interface SeenSessions {
   sessions: Readonly<Record<string, string>>;
 }
 const SEEN_LIMIT = 500;
-/** What a session had open in the editor and Files, for a reload to put back. */
+/** What a session had open in the editor, Files and the side panel, for a reload to put back. */
 export interface SavedWorkspace {
   /** Its tabs, in order: files by path, terminals as `src/editor/store.ts` names them. */
   tabs: readonly string[];
@@ -176,6 +174,8 @@ export interface SavedWorkspace {
   /** The folder Files showed, and the folders open in its tree. */
   folder?: string | undefined;
   open: readonly string[];
+  /** The side panel it shows, `null` for none; absent until one is opened or closed in it. */
+  panel?: Panel | null | undefined;
 }
 const WORKSPACES = PREFIX + 'workspaces';
 const WORKSPACE_LIMIT = 50;
@@ -194,12 +194,14 @@ function normalizeWorkspace(value: unknown): SavedWorkspace | undefined {
   if (!object(value)) return undefined;
   const tabs = strings(value.tabs);
   const { active, preview, folder } = value;
+  const panel = value.panel === null ? null : PANELS.find((name) => name === value.panel);
   return {
     tabs,
     ...(typeof active === 'string' && tabs.includes(active) ? { active } : {}),
     ...(typeof preview === 'string' && tabs.includes(preview) ? { preview } : {}),
     ...(typeof folder === 'string' && folder ? { folder } : {}),
     open: strings(value.open),
+    ...(panel !== undefined ? { panel } : {}),
   };
 }
 /** The entries of `value`, a map, each with when it was last kept, most recent first. */
@@ -267,12 +269,8 @@ function width(value: unknown, bounds: { min: number; max: number }): number | u
     : undefined;
 }
 function normalizeLayout(layout: Record<string, unknown>): LayoutPreferences {
-  // Before one panel showed at a time, Files and the session details opened apart; Files was
-  // shown first where both were open, and the details opened at their context.
-  const panel =
-    PANELS.find((name) => name === layout.panel) ??
-    (layout.filesOpen === true ? 'files' : layout.detailsOpen === true ? 'context' : undefined);
   const sessionsWidth = width(layout.sessionsWidth, { min: 180, max: 480 });
+  // Before one panel showed at a time, Files and the session details had widths of their own.
   const panelWidth = width(
     layout.panelWidth ?? layout.filesWidth ?? layout.detailsWidth,
     PANEL_WIDTH,
@@ -280,7 +278,6 @@ function normalizeLayout(layout: Record<string, unknown>): LayoutPreferences {
   const conversationWidth = width(layout.conversationWidth, CONVERSATION_COLUMN);
   return {
     sessionsCollapsed: layout.sessionsCollapsed === true,
-    ...(panel ? { panel } : {}),
     ...(sessionsWidth !== undefined ? { sessionsWidth } : {}),
     ...(panelWidth !== undefined ? { panelWidth } : {}),
     ...(conversationWidth !== undefined ? { conversationWidth } : {}),
@@ -316,6 +313,8 @@ export class BrowserStorage {
   private listeners = new Set<() => void>();
   private seenCache = new Map<string, { raw: string | null; value: SeenSessions }>();
   private foldedCache = new Map<string, { raw: string | null; value: readonly string[] }>();
+  /** What was kept of the places, parsed once for each time it changes, as it is read often. */
+  private workspacesCache?: { raw: string | null; value: unknown };
   private state: Settings = defaults();
   /** Whether what is kept of the account is: not once it signed out. */
   private keeping = true;
@@ -641,9 +640,11 @@ export class BrowserStorage {
     this.write(FOLDED_GROUPS + connectionId, groups.length ? JSON.stringify(groups) : null);
     this.emit();
   }
-  /** What `place` had open in the editor and Files, as last kept. */
+  /** What `place` had open in the editor, Files and the side panel, as last kept. */
   workspace(place: string): SavedWorkspace | undefined {
-    const value = parse(this.read(WORKSPACES));
+    const raw = this.read(WORKSPACES);
+    if (this.workspacesCache?.raw !== raw) this.workspacesCache = { raw, value: parse(raw) };
+    const value = this.workspacesCache.value;
     return object(value) ? normalizeWorkspace(value[place]) : undefined;
   }
   /**
@@ -653,10 +654,20 @@ export class BrowserStorage {
   saveWorkspace(place: string, change: Partial<SavedWorkspace>) {
     if (!this.keeping) return;
     const next = { tabs: [], open: [], ...this.workspace(place), ...change };
-    const empty = !next.tabs.length && !next.open.length && !next.folder;
+    const empty =
+      !next.tabs.length && !next.open.length && !next.folder && next.panel === undefined;
     const others = recent(parse(this.read(WORKSPACES))).filter(([key]) => key !== place);
     const kept = empty ? others : [[place, { ...next, at: Date.now() }] as const, ...others];
     this.write(WORKSPACES, JSON.stringify(Object.fromEntries(kept.slice(0, WORKSPACE_LIMIT))));
+  }
+  /**
+   * Keeps the side panel `place` shows, `null` for none, telling those following it; `undefined`
+   * forgets it, as for a place that never had one opened or closed.
+   */
+  savePanel(place: string, panel: Panel | null | undefined) {
+    if (!this.keeping) return;
+    this.saveWorkspace(place, { panel });
+    this.emit();
   }
   /** Forgets what `places`, as sessions deleted, had open. */
   forgetWorkspaces(places: readonly string[]) {

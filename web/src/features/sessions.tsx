@@ -8,6 +8,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type FormEvent,
   type CSSProperties,
 } from 'react';
@@ -54,6 +55,7 @@ import { SwitchField } from '../components/ui/switch';
 import { Empty, ErrorNotice, Field, Json, Loading } from '../components/common';
 import { Conversation } from './conversation';
 import { NewConversation } from './new-conversation';
+import { newConversationFolder, newConversationPlace } from './use-new-conversation';
 import { SessionContext } from './session-context';
 import { SessionList } from './session-list';
 import { SessionDeleteDialog, SessionMetadataItems, SessionRenameDialog } from './session-metadata';
@@ -156,14 +158,12 @@ export function SessionsPage({
           : Boolean(selected?.session) && (panel !== 'schedules' || canSchedule),
       );
   const terminalAvailable = hasWorkspace && terminalEnabled;
-  // A new conversation with no folder chosen works in Meka's default one; the home folder stands in
-  // where Meka does not say which.
-  const filesStart =
-    (id ? selected?.session?.working_directory : newConversation.settings.workingDirectory) ||
-    state.info?.default_working_directory ||
-    '~';
+  const filesStart = newConversationFolder(
+    (id ? selected?.session?.working_directory : newConversation.settings.workingDirectory) ?? '',
+    state.info?.default_working_directory,
+  );
   // Each session's Files and open files are its own; a new conversation's follow its folder.
-  const filesPlace = selected?.id ?? `new:${filesStart}`;
+  const filesPlace = selected?.id ?? newConversationPlace(filesStart);
   const editor = useEditorStore();
   // Read when a file opens: the page's one store, and where the files open now.
   const opening = useRef({ store: editor, place: filesPlace });
@@ -180,8 +180,20 @@ export function SessionsPage({
   // The list shown by hand where it does not fit stays, what is beside it narrowed, until
   // something is opened beside it.
   const [listByHand, setListByHand] = useState(false);
+  // Each session, and a new conversation, shows a panel of its own, Files until another is opened
+  // or the panel is closed in it.
+  const ownPanel = useSyncExternalStore(
+    runtime.storage.subscribe,
+    () => runtime.storage.workspace(filesPlace)?.panel,
+  );
+  const chosen = ownPanel === undefined ? 'files' : (ownPanel ?? undefined);
   // The panel asked for, where there is one.
-  const panel = layout.panel && panels.includes(layout.panel) ? layout.panel : undefined;
+  const panel = chosen && panels.includes(chosen) ? chosen : undefined;
+  /** Shows `next`, or no panel, here. */
+  const keepPanel = useCallback(
+    (next: Panel | undefined) => runtime.storage.savePanel(filesPlace, next ?? null),
+    [runtime, filesPlace],
+  );
   const editorWanted = desktop && !page && editorTabs.keys.length > 0;
   const panelWanted = desktop && Boolean(panel);
   // The list folds to its rail to make room for both.
@@ -224,10 +236,8 @@ export function SessionsPage({
   }
   /** Shows the session list at `width`, the panel making way where it leaves the list no room. */
   function showList(width: number) {
-    runtime.storage.layout({
-      sessionsCollapsed: false,
-      ...(panelMakesWay(width, preferred, shown) ? { panel: undefined } : {}),
-    });
+    runtime.storage.layout({ sessionsCollapsed: false });
+    if (panelMakesWay(width, preferred, shown)) keepPanel(undefined);
     setListByHand(true);
   }
   const panelButtons = useRef(new Map<Panel, HTMLButtonElement>());
@@ -240,7 +250,7 @@ export function SessionsPage({
       setLastOpened('panel');
       setListByHand(false);
     }
-    if (desktop) runtime.storage.layout({ panel: next });
+    if (desktop) keepPanel(next);
     else if (next && isWorkspacePanel(next)) {
       setFilesTab(next);
       setMobileFiles(true);
@@ -354,7 +364,7 @@ export function SessionsPage({
         nonce: (previous?.nonce ?? 0) + 1,
       }));
       setLastOpened('panel');
-      if (desktop) runtime.storage.layout({ panel: 'files' });
+      if (desktop) keepPanel('files');
       else {
         setFilesTab('files');
         setMobileFiles(true);
@@ -382,7 +392,7 @@ export function SessionsPage({
       },
       showContext: () => {
         setLastOpened('panel');
-        if (desktop) runtime.storage.layout({ panel: 'context' });
+        if (desktop) keepPanel('context');
         else {
           setPanelTab('context');
           setMobileDetails(true);
@@ -404,7 +414,7 @@ export function SessionsPage({
         };
       },
     };
-  }, [desktop, runtime, id, setPanelTab, setMobileEditor, terminalAvailable, filesStart]);
+  }, [desktop, id, setPanelTab, setMobileEditor, terminalAvailable, filesStart, keepPanel]);
 
   function collapseList() {
     runtime.storage.layout({ sessionsCollapsed: true });

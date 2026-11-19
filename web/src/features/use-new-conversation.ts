@@ -15,6 +15,19 @@ export interface NewSessionSettings {
 /** What a new session has, whatever it is set up like: a folder, or a project, '' for none. */
 export type NewSessionSetup = Partial<Pick<NewSessionSettings, 'workingDirectory' | 'project'>>;
 
+/**
+ * The folder a new conversation works in: the one `chosen`, else Meka's default, else the home
+ * folder, where Meka does not say which.
+ */
+export function newConversationFolder(chosen: string, defaultFolder: string | null | undefined) {
+  return chosen || defaultFolder || '~';
+}
+
+/** Where what a new conversation in `folder` has open is kept, apart from any session's. */
+export function newConversationPlace(folder: string) {
+  return `new:${folder}`;
+}
+
 const serverDefaults: NewSessionSettings = {
   workingDirectory: '',
   profile: '',
@@ -84,6 +97,15 @@ export function useNewConversation(onCreated: (id: string) => void) {
     if (!active()) return;
     // Transfer the draft before navigating. A failed first turn stays in this session.
     runtime.storage.saveDraft(connection.id, session.id, message);
+    // The side panel too, where one was opened or closed; the next new conversation shows Files.
+    const place = newConversationPlace(
+      newConversationFolder(settings.workingDirectory, info.default_working_directory),
+    );
+    const panel = runtime.storage.workspace(place)?.panel;
+    if (panel !== undefined) {
+      runtime.storage.savePanel(session.id, panel);
+      runtime.storage.savePanel(place, undefined);
+    }
     controller.saveDraft(session.id, options);
     const admission = controller.submitInitialMessage(session, message, options);
     controller.saveDraft(

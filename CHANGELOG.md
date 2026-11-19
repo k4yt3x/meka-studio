@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Each session keeps its own side panel, which starts as Files, rather than sharing one.
 - Building from source with `cargo build` needs WebKitGTK on Linux; `-p meka-studio` skips the app.
 - Before Meka has a profile, a new conversation shows a button to Providers in place of the input.
 - Reading options show Offset only where it can move the conversation.
