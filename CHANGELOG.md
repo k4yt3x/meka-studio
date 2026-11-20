@@ -7,59 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.44.0] - 2026-11-20
+
 ### Added
 
-- Meka Studio Desktop, an app for Linux, macOS and Windows, runs Meka Studio with its own Meka.
-- The desktop app keeps its Meka's config and sessions apart from any other Meka on the computer.
-- Closing the desktop app's window the first time asks whether to keep Meka running in the tray.
-- The desktop app shows system notifications, and restarts Meka from Settings → About.
-- The desktop app opens Meka's config, data and log folders from Settings → About.
-- The desktop app asks GitHub for a newer release once a day, which can be turned off.
-- On Windows and macOS, the desktop app's window has its buttons in Meka Studio's top row.
-- On Windows, the desktop app comes as an installer, or as a zip that keeps its data beside it.
-- Starting another copy of the desktop app shows the running one, and says where it runs from.
-- The desktop app's downloads carry its license and the third-party notices.
-- The terminal opens on the new conversation screen too, in the folder chosen for it.
-- The desktop app centers the conversation in its area by default; a browser keeps the page.
-- In the desktop app, files and folders dropped on a conversation add their paths; images attach.
-- A Git panel beside Files lists the changes since the last commit, as a tree or by name.
-- Each change shows the lines it adds and removes, and the panel sums them.
-- A changed file opens in the editor beside what the last commit holds, unchanged stretches folded.
-- The Git panel stages and unstages files and folders, and commits with a message.
-- The Git panel's History lists the branch's commits, each with the files it changed.
-- A file clicked in Files or Git opens in a preview tab that the next one replaces until kept.
-- On Windows, a drive button before the path in Files shows the tree from another drive.
-- PDFs open in the editor, with zoom, find, links and selectable text, and follow changes on disk.
-- Quitting the desktop app, with Ctrl+Q (Cmd+Q) too, asks first while a turn runs.
-- The desktop app reloads Meka Studio with Ctrl+R or F5, leaving Meka running.
-- The desktop app goes back and forward with Alt+arrows (Cmd+[ and Cmd+]) or the mouse's buttons.
-- The desktop app zooms its window with Ctrl+=, Ctrl+- and Ctrl+0, and goes full screen with F11.
-- In the desktop app, Ctrl+W closes the editor's tab, and Ctrl+Tab and Ctrl+Shift+Tab switch tabs.
-- In the desktop app, Ctrl+N starts a session, Ctrl+, opens Settings, and Ctrl+F finds text.
+- Meka Studio Desktop: an app for Linux, macOS and Windows that runs its own, separate Meka.
+- The desktop app shows system notifications, and can keep Meka running in the tray.
+- The desktop app has its own keys, such as Ctrl+Q to quit and Ctrl+F to find in the conversation.
+- A Git panel beside Files lists changes, compares them with the last commit, stages and commits.
+- PDFs open in the editor, with zoom, find, links and selectable text.
+- A file clicked in Files or Git opens in a preview tab until you keep it.
+- The new conversation screen has the terminal too.
+- On Windows, Files can switch between drives.
 
 ### Changed
 
-- Each session keeps its own side panel, which starts as Files, rather than sharing one.
-- Building from source with `cargo build` needs WebKitGTK on Linux; `-p meka-studio` skips the app.
-- Before Meka has a profile, a new conversation shows a button to Providers in place of the input.
-- Reading options show Offset only where it can move the conversation.
-- A page or panel still loading shows its spinner in the middle of its room.
-- Settings → Providers and Instructions show an empty list as MCP and the sidebar's pages do.
-- Settings → MCP and Instructions are titled as their entries, and Edit sits beside the title.
-- The buttons that add an MCP server, memory, skill or schedule are named as the others are.
-- With Meka 0.96.0, a new conversation shows Meka's default folder, where Files and terminals open.
+- Each session remembers its own side panel, starting with Files.
+- Ctrl+Shift+2 opens Git; Context, Tasks and Schedules move to Ctrl+Shift+3, 4 and 5.
+- With Meka 0.96.0 or newer, a new conversation starts in Meka's default folder.
 - The completion sound is on by default.
-- Uploads in Files show as rows like the tree's, and one that landed leaves, selected in the tree.
-- Ctrl+Shift+2 now opens Git; Context, Tasks and Schedules move to Ctrl+Shift+3 to 5.
+- Building from source on Linux needs WebKitGTK, unless `-p meka-studio` builds the server alone.
 
 ### Fixed
 
-- An error on the new conversation screen sits as far from the title as from the message box.
-- Errors from the message box, a new session, and the sidebar's import can be dismissed.
-- A conversation opened where it can't center on the window centers in its area, not at its edge.
-- Moving the conversation, then making the window smaller, no longer lets the whole app scroll.
-- Middle-clicking an editor tab closes it when there are more tabs than fit, instead of scrolling.
-- A reply still being written no longer shows a gap where its part already saved ends.
+- In narrow windows, the conversation stays centered in its area and the app no longer scrolls.
+- Errors in the message box, new sessions and imports can be dismissed.
 - On Windows, Files no longer fills the log with warnings about entries it cannot read.
 
 ## [0.43.0] - 2026-11-16
@@ -849,7 +821,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Light and dark themes, narrow layouts, and collapsible, resizable session panels.
 - Hosting at the root or a subpath, with GitHub Pages deployment on version tags.
 
-[Unreleased]: https://github.com/k4yt3x/meka-studio/compare/0.43.0...HEAD
+[Unreleased]: https://github.com/k4yt3x/meka-studio/compare/0.44.0...HEAD
+[0.44.0]: https://github.com/k4yt3x/meka-studio/compare/0.43.0...0.44.0
 [0.43.0]: https://github.com/k4yt3x/meka-studio/compare/0.42.0...0.43.0
 [0.42.0]: https://github.com/k4yt3x/meka-studio/compare/0.41.0...0.42.0
 [0.41.0]: https://github.com/k4yt3x/meka-studio/compare/0.40.0...0.41.0
