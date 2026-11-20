@@ -149,11 +149,12 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci --ignore-scripts
         working-directory: web
-      # The webview and tray icon, and patchelf for the AppImage.
+      # The webview, the tray icon, patchelf for the AppImage, and the GStreamer plugins it carries.
       - if: runner.os == 'Linux'
         run: >
           sudo apt-get update && sudo apt-get install --yes
           libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+          gstreamer1.0-plugins-base gstreamer1.0-plugins-good
       # Git's Perl, which may come first on Windows' path, cannot configure the vendored OpenSSL.
       - if: runner.os == 'Windows'
         run: echo 'OPENSSL_SRC_PERL=C:\Strawberry\perl\bin\perl.exe' >> "$GITHUB_ENV"
@@ -164,13 +165,16 @@ jobs:
           crates/meka-studio-desktop/binaries/THIRD-PARTY-NOTICES.txt
       - if: runner.os != 'Windows'
         run: cargo install tauri-cli --version 2.12.5 --locked
+      # The AppImage's WebKitGTK plays sound through GStreamer, whose plugins it must carry: it
+      # finds none of the system's. Tauri's bundler gathers them on Ubuntu.
       - name: Bundle the app with its Meka
         if: runner.os != 'Windows'
         working-directory: crates/meka-studio-desktop
         run: >
           cargo tauri build --target "$TARGET" --bundles ${{ matrix.bundles }}
           --config '{"bundle":{"resources":{"binaries/meka":"meka","../../LICENSE":"LICENSE",
-          "binaries/THIRD-PARTY-NOTICES.txt":"THIRD-PARTY-NOTICES.txt"}}}'
+          "binaries/THIRD-PARTY-NOTICES.txt":"THIRD-PARTY-NOTICES.txt"},
+          "linux":{"appimage":{"bundleMediaFramework":true}}}}'
       - name: Name the bundles
         if: runner.os != 'Windows'
         run: |
