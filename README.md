@@ -2,26 +2,26 @@
 
 A web interface for [Meka](https://github.com/k4yt3x/meka), served from the Meka host, or a desktop app with a Meka of its own.
 
+![Meka Studio Screenshot](assets/screenshot.png)
+
 Meka Studio is a server you install beside Meka, on Linux, macOS or Windows. It signs you in, serves the interface, and passes your requests to Meka on loopback, so Meka itself is never exposed to your network or the internet. Put Meka Studio behind a Cloudflare Tunnel or an HTTPS proxy, and reach your Meka from any browser, or install it on your phone's Home Screen.
 
-Besides Meka's sessions, memory, skills, schedules, MCP servers, accounts and profiles, Meka Studio adds what Meka leaves to the host:
+Besides Meka's sessions, projects, memory, skills, schedules, MCP servers, accounts and profiles, Meka Studio adds what Meka leaves to the host:
 
-- **Sign-in** with a password or a passkey, a list of the devices signed in, and a sign-in log.
-- **Files** beside each session, as a tree from its working directory: upload, download, move, mention a file in a message, with git's changes marked.
-- **An editor** for the files, VS Code's Monaco, that follows what the agent changes on disk.
-- **Terminals** in each session's editor tabs, which keep running when you leave, for any device to come back to.
-- **Push notifications** when a turn finishes, fails, or waits for your approval or answer, even with the app closed.
-- **Data saver** for mobile data, and preferences shared by every device.
+- **Sign-in**: a password or a passkey, with the devices signed in and a sign-in log.
+- **Files**: the session's folder as a tree, to upload, download, move and mention files.
+- **Git**: compare changes with the last commit, stage, commit, and browse the history.
+- **Editor**: VS Code's Monaco, following the agent's changes on disk, and a PDF viewer.
+- **Terminals**: editor tabs that keep running when you leave, for any device to return to.
+- **Push notifications**: when a turn finishes, fails, or waits for you, even with the app closed.
+- **Data saver**: fewer messages at once, pictures on tap, and batched replies.
+- **Shared preferences**: what conversations show and how they notify, on every device.
 
-The **desktop app** is Meka Studio for the computer you work on: it runs a Meka of its own, with its own config and sessions, in a window with a tray icon and system notifications. It needs no token, service or sign-in.
-
-This release supports **Meka 0.95.0** and newer; the desktop app comes with Meka 0.96.1.
-
-web.meka.run, the static site that reached Meka straight from the browser, is retired; its last release was Meka Studio 0.23.1.
+The **desktop app**, Meka Studio Desktop for Linux, macOS and Windows, is Meka Studio for the computer you work on: it runs a Meka of its own, with its own config and sessions, in a window with a tray icon and system notifications. It needs no token, service or sign-in.
 
 ## Install
 
-For the desktop app, download its installer from the [releases](https://github.com/k4yt3x/meka-studio/releases). For the server, see [Installing Meka Studio](docs/install.md). In short, with `~/.config/meka-studio/config.toml` naming Meka's address and its token ([`config/meka-studio.toml`](config/meka-studio.toml) is the example):
+Download the desktop app from the [releases](https://github.com/k4yt3x/meka-studio/releases): an installer, the Linux AppImage, or the Windows portable zip. [Installing Meka Studio](docs/install.md) covers the app and the server. In short, with the server's `~/.config/meka-studio/config.toml` naming Meka's address and its token ([`config/meka-studio.toml`](config/meka-studio.toml) is the example):
 
 ```sh
 meka-studio user add <username>
@@ -30,7 +30,7 @@ meka-studio serve
 
 ## Develop
 
-Install Node.js 24, npm 11 and the Rust toolchain. Run Meka Studio against a Meka, with its `public_origin` set to the dev server's address:
+Install Node.js, at the version `web/.nvmrc` names, and the Rust toolchain. Run Meka Studio against a Meka, with its `public_origin` set to the dev server's address:
 
 ```toml
 listen = "127.0.0.1:4180"
@@ -50,15 +50,15 @@ npm ci
 npm run dev
 ```
 
-The dev server passes `/api` and `/meka` to Meka Studio at `MEKA_STUDIO_GATEWAY`, `http://127.0.0.1:4180` unless set. `just desktop` runs the desktop app. See [Development](docs/development.md) for the checks and releases.
+The dev server passes `/api` and `/meka` to Meka Studio at `MEKA_STUDIO_GATEWAY`, `http://127.0.0.1:4180` unless set. `just desktop` runs the desktop app. On Linux, it and `just check` need WebKitGTK and libayatana-appindicator. See [Development](docs/development.md) for their packages, the checks and releases.
 
 ## Documentation
 
-- [Installing Meka Studio](docs/install.md): the desktop app, Meka and Meka Studio as services, HTTPS, and your phone
-- [Using Meka Studio](docs/usage.md): signing in, Files, the terminal, notifications, and Data saver
+- [Installing Meka Studio](docs/install.md): the desktop app, the server, HTTPS, and your phone
+- [Using Meka Studio](docs/usage.md): signing in, the desktop app, Files, Git, the editor, and terminals
 - [API support](docs/api-coverage.md): supported Meka operations and limits
-- [Architecture](docs/architecture.md): the server, the interface, and their invariants
-- [Development](docs/development.md): layout, checks, and releases
+- [Architecture](docs/architecture.md): the server, the desktop app, the interface, and their invariants
+- [Development](docs/development.md): layout, running it, checks, and releases
 - [Changelog](CHANGELOG.md)
 
 ## License
