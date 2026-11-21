@@ -54,7 +54,9 @@ function selectors() {
 it('keeps the page styles that could match Monaco widgets off its surface', () => {
   const shared = monacoClasses();
   const reaching = selectors().filter(({ selector, context }) => {
+    // Less motion, as the system asks or Animation is off, stills Monaco's widgets as well.
     if (context.some((rule) => rule.includes('prefers-reduced-motion'))) return false;
+    if (selector.startsWith(":root[data-animation='off']")) return false;
     if (selector.startsWith("[data-surface^='monaco']")) return false;
     const subject = selector.split(/\s*[\s>+~]\s*(?![^(]*\))/).at(-1)!;
     if (/^(:root|html|body)\b/.test(subject)) return false;

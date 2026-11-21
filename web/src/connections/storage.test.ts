@@ -36,10 +36,12 @@ it('defaults to saving no data and reads older settings without their connection
       connections: [{ id: 'old', name: 'Old', endpoint: 'https://old.example/', authority: 'a' }],
       turnNotifications: true,
       theme: 'dark',
+      animation: 'off',
     }),
   );
   const snapshot = new BrowserStorage(local).getSnapshot();
   expect(snapshot.theme).toBe('dark');
+  expect(snapshot.animation).toBe('off');
   expect(snapshot.dataSaver).toBe(false);
   expect(snapshot).not.toHaveProperty('connections');
   expect(snapshot).not.toHaveProperty('turnNotifications');
@@ -55,6 +57,7 @@ it('takes shared preferences from Meka Studio, checked, and leaves this deviceâ€
   adapter.subscribe(() => changes.push(adapter.getSnapshot()));
   adapter.applyPreferences({
     theme: 'light',
+    animation: 'off',
     foldSteps: false,
     conversationFontSize: 12,
     conversationOffset: 40,
@@ -70,6 +73,7 @@ it('takes shared preferences from Meka Studio, checked, and leaves this deviceâ€
   });
   expect(adapter.getSnapshot()).toMatchObject({
     theme: 'system',
+    animation: 'system',
     conversationFontSize: 18,
     conversationOffset: CONVERSATION_OFFSET.default,
     terminalFontSize: TERMINAL_FONT.default,

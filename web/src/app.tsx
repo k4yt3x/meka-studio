@@ -140,6 +140,12 @@ function Workspace() {
     return () => media.removeEventListener('change', apply);
   }, [settings.theme]);
   useEffect(() => {
+    // Following the system is the stylesheet's own, from the first paint.
+    const root = document.documentElement;
+    if (settings.animation === 'system') delete root.dataset.animation;
+    else root.dataset.animation = settings.animation;
+  }, [settings.animation]);
+  useEffect(() => {
     if (!state.controller) return;
     const controller = state.controller;
     const timer = setInterval(() => {

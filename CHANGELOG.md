@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.45.0] - 2026-11-21
+
 ### Added
 
 - Terminals copy what is selected with Ctrl+Shift+C, and find text with Ctrl+Shift+F.
 - In the desktop app, Ctrl+Shift+W closes a terminal's tab.
+- Settings → Appearance → Animation follows the system, or turns animations on or off.
 
 ### Changed
 
@@ -834,7 +837,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Light and dark themes, narrow layouts, and collapsible, resizable session panels.
 - Hosting at the root or a subpath, with GitHub Pages deployment on version tags.
 
-[Unreleased]: https://github.com/k4yt3x/meka-studio/compare/0.44.0...HEAD
+[Unreleased]: https://github.com/k4yt3x/meka-studio/compare/0.45.0...HEAD
+[0.45.0]: https://github.com/k4yt3x/meka-studio/compare/0.44.0...0.45.0
 [0.44.0]: https://github.com/k4yt3x/meka-studio/compare/0.43.0...0.44.0
 [0.43.0]: https://github.com/k4yt3x/meka-studio/compare/0.42.0...0.43.0
 [0.42.0]: https://github.com/k4yt3x/meka-studio/compare/0.41.0...0.42.0

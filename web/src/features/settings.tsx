@@ -148,7 +148,7 @@ export function AppearanceSettings() {
             settings.editorFontSize === EDITOR_FONT.default &&
             settings.filesFontSize === FILES_FONT.default
           }
-          title="Reset the font sizes, width, and position; the color theme is kept"
+          title="Reset the font sizes, width, and position; the color theme and animation are kept"
           onClick={() => {
             runtime.storage.resetConversationAppearance();
             runtime.storage.terminalFontSize(TERMINAL_FONT.default);
@@ -174,6 +174,18 @@ export function AppearanceSettings() {
               <option value="system">System</option>
               <option value="light">Light</option>
               <option value="dark">Dark</option>
+            </select>
+          </Field>
+          <Field label="Animation">
+            <select
+              value={settings.animation}
+              onChange={(event) =>
+                runtime.storage.animation(event.target.value as 'system' | 'on' | 'off')
+              }
+            >
+              <option value="system">System</option>
+              <option value="on">On</option>
+              <option value="off">Off</option>
             </select>
           </Field>
         </div>

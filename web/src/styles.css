@@ -839,11 +839,6 @@ pre.bounded {
 .provider-list [data-sorting='shifted'] {
   transition: transform 150ms ease;
 }
-@media (prefers-reduced-motion: reduce) {
-  .provider-list [data-sorting='shifted'] {
-    transition: none;
-  }
-}
 @media (max-width: 760px) {
   /* A narrow row puts its details under its name, and keeps its buttons beside both. */
   .provider-list,
@@ -1382,11 +1377,6 @@ pre.bounded {
 @keyframes loading-appear {
   from {
     opacity: 0;
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .loading-fill {
-    animation: none;
   }
 }
 .spin {
@@ -3298,11 +3288,6 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
   opacity: 0.8;
   transition-duration: 80ms;
 }
-@media (prefers-reduced-motion: reduce) {
-  .center-guide {
-    transition: none;
-  }
-}
 .reading-options-footer {
   display: grid;
   grid-template-columns: auto auto;
@@ -4935,15 +4920,26 @@ body:has(.settings-dialog[data-state='open']) .approval-tray {
     font-size: max(16px, 1rem);
   }
 }
+/* Nothing moves on its own where the system asks for less motion, unless Animation is on, or
+   wherever Animation is off: the two rules say the same, as a media query cannot join a selector.
+   Unlike the element styles, they apply inside Monaco too. */
 @media (prefers-reduced-motion: reduce) {
-  /* Unlike the element styles, this applies inside Monaco too. */
-  *,
-  *::before,
-  *::after {
+  :root:not([data-animation='on']),
+  :root:not([data-animation='on']) *,
+  :root:not([data-animation='on']) *::before,
+  :root:not([data-animation='on']) *::after {
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
   }
+}
+:root[data-animation='off'],
+:root[data-animation='off'] *,
+:root[data-animation='off'] *::before,
+:root[data-animation='off'] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
 }
 
 .markdown pre {

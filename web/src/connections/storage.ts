@@ -113,6 +113,8 @@ export type PortablePreferences = Pick<Settings, (typeof PORTABLE_PREFERENCES)[n
 export interface Settings {
   version: 1;
   theme: 'system' | 'light' | 'dark';
+  /** Whether the page animates: as the system asks, or on or off whatever it asks. */
+  animation: 'system' | 'on' | 'off';
   conversationFontSize: number;
   conversationMaxWidth: ConversationMaxWidth;
   /**
@@ -232,6 +234,7 @@ export interface Draft {
 const defaults = (): Settings => ({
   version: 1,
   theme: 'system',
+  animation: 'system',
   conversationFontSize: CONVERSATION_FONT.default,
   conversationMaxWidth: CONVERSATION_WIDTH.default,
   conversationAnchor: undefined,
@@ -290,6 +293,7 @@ function normalizeSettings(value: unknown): Settings {
   return {
     version: 1,
     theme: value.theme === 'light' || value.theme === 'dark' ? value.theme : 'system',
+    animation: value.animation === 'on' || value.animation === 'off' ? value.animation : 'system',
     conversationFontSize: normalizeConversationFontSize(value.conversationFontSize),
     conversationMaxWidth: normalizeConversationMaxWidth(value.conversationMaxWidth),
     conversationAnchor: normalizeConversationAnchor(value.conversationAnchor),
@@ -442,6 +446,9 @@ export class BrowserStorage {
   }
   theme(theme: Settings['theme']) {
     this.save({ ...this.readSettings(), theme });
+  }
+  animation(animation: Settings['animation']) {
+    this.save({ ...this.readSettings(), animation });
   }
   conversationFontSize(value: number) {
     this.save({
