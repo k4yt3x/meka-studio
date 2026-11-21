@@ -3558,6 +3558,14 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
 .message-input > header > span {
   color: var(--text);
 }
+/* A person's words, as written: the conversation's text, with every line and space kept. */
+.written-text {
+  margin: 0;
+  font-size: var(--conversation-font-size, 0.88rem);
+  line-height: 1.8;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .message-user > .markdown > :first-child {
   margin-top: 0;
 }

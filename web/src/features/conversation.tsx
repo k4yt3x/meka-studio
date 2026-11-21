@@ -151,6 +151,8 @@ export function Conversation({ state }: { state: SessionState }) {
   const profiles = useResource<Schema['ProfilesResponse']>('/v1/profiles');
   const inbox = useResource<Schema['InboxListResponse']>(sessionPath(state.id) + '/inbox');
   const canWithdraw = useCan('sessions:w') && !state.session?.parent_id && !state.deleting;
+  // A sub-agent's messages are the prompts the agent that started it wrote.
+  const fromPerson = !state.session?.parent_id;
   const [feedbackError, setFeedbackError] = useState<unknown>();
   // Also marked from the session list, which can be collapsed or hidden.
   useMarkSeen(state.id, state.session?.updated_at);
@@ -605,6 +607,7 @@ export function Conversation({ state }: { state: SessionState }) {
                   messages={group}
                   toolResults={history.results}
                   showTurnContext={showTurnContext}
+                  fromPerson={fromPerson}
                   fold={foldSteps}
                   ended={
                     !runningTurn ||
@@ -631,6 +634,7 @@ export function Conversation({ state }: { state: SessionState }) {
                           messages={groupToolResults([group.message]).messages}
                           toolResults={noToolResults}
                           showTurnContext={showTurnContext}
+                          fromPerson={fromPerson}
                         />
                       ) : (
                         <article
@@ -838,6 +842,13 @@ function AgentActivity({
 function SessionMarkdown({ text }: { text: string }) {
   const workspace = useWorkspace();
   return <Markdown text={text} base={workspace?.folder} />;
+}
+/**
+ * A person's words as they wrote them, as chat apps and Meka's screen show them: every line and
+ * space kept, nothing read as Markdown, but for the blank lines around them.
+ */
+function WrittenText({ text }: { text: string }) {
+  return <p className="written-text">{text.replace(/^(?:[ \t]*\n)+|(?:\n[ \t]*)+$/g, '')}</p>;
 }
 /** What Meka wrote to send the agent back to work, kept apart from what the person wrote. */
 function Nudge({ kind, text }: { kind: string; text: string }) {
@@ -1131,6 +1142,7 @@ function Message({
   sessionId,
   toolResults,
   showTurnContext,
+  fromPerson,
   fold = false,
   ended = true,
   hold = false,
@@ -1145,6 +1157,11 @@ function Message({
   sessionId: string;
   toolResults: ReadonlyMap<ToolUseBlock, ToolResultBlock>;
   showTurnContext: boolean;
+  /**
+   * Whether the session's own messages are a person's words, shown as written, rather than the
+   * prompts the agent that started a sub-agent wrote it, which are Markdown.
+   */
+  fromPerson: boolean;
   /** Whether an agent's finished runs of steps fold: see {@link Steps}. */
   fold?: boolean;
   /** Whether its turn is over, or has said more since, so every run of it is finished. */
@@ -1239,6 +1256,7 @@ function Message({
       block={block}
       sessionId={sessionId}
       result={block.type === 'tool_use' ? toolResults.get(block) : undefined}
+      asWritten={fromPerson && message.role === 'user'}
     />
   );
   // Only the agent's turns have steps to fold.
@@ -1377,7 +1395,7 @@ function SentMessage({
           )
         }
       />
-      {submission.body.message && <SessionMarkdown text={submission.body.message} />}
+      {submission.body.message && <WrittenText text={submission.body.message} />}
       {images.map((image, index) =>
         // Sent again by hash, the image is the one the session already holds.
         image.hash ? (
@@ -1496,15 +1514,20 @@ function ContentBlock({
   block,
   sessionId,
   result,
+  asWritten = false,
 }: {
   block: ShownBlock;
   sessionId: string;
   result?: ToolResultBlock | undefined;
+  /** Whether its words are a person's, shown as written rather than as Markdown. */
+  asWritten?: boolean;
 }) {
+  const words = (text: string) =>
+    asWritten ? <WrittenText text={text} /> : <SessionMarkdown text={text} />;
   switch (block.type) {
     case 'text':
     case 'refusal':
-      return <SessionMarkdown text={block.text} />;
+      return words(block.text);
     case 'turn_context':
       return (
         <details className="injected">
@@ -1521,11 +1544,11 @@ function ContentBlock({
     case 'nudge':
       return <Nudge kind={block.kind} text={block.text} />;
     case 'inbox':
-      return <SessionMarkdown text={block.body} />;
+      return words(block.body);
     case 'invocation':
       return (
         <>
-          {block.directive.trim() && <SessionMarkdown text={block.directive} />}
+          {block.directive.trim() && words(block.directive)}
           <p className="muted small">
             {block.kind === 'mcp_prompt' ? 'Prompt' : 'Skill'}: {block.name}
           </p>
