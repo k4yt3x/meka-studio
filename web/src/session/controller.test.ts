@@ -2490,6 +2490,45 @@ it('reads only what came after the history it holds, keeping earlier pages', asy
   expect(state().saved?.position).toBe(252);
 });
 
+/** A feed replaying a turn's end as the session opens asks for its history while it is read. */
+it('reads the last page once when a refresh starts while it is on its way', async () => {
+  const f = await fixture();
+  f.history.sayAll(Array.from({ length: 150 }, (_, index) => said(index)));
+  vi.mocked(f.api.get).mockClear();
+  const { controller, state, release } = await reopened(f, { hold: true });
+  const refresh = controller.refresh('s');
+  release();
+  await refresh;
+  await vi.waitFor(() => expect(state().loading).toBe(false));
+  const reads = vi
+    .mocked(f.api.get)
+    .mock.calls.filter(([path]) => path.endsWith('/history'))
+    .map(([, query]) => query);
+  expect(reads).toEqual([{ limit: 100 }, { after: 150, limit: 1000 }]);
+  expect(texts(state().saved?.messages)).toEqual(
+    Array.from({ length: 100 }, (_, index) => `message ${index + 50}`),
+  );
+});
+
+it('reads the last page again after reading it failed', async () => {
+  const f = await fixture();
+  f.history.sayAll([said(0), said(1)]);
+  const get = vi.mocked(f.api.get).getMockImplementation()!;
+  let failed = false;
+  vi.mocked(f.api.get).mockImplementation(async <T>(path: string, query?: Query) => {
+    if (!failed && path.endsWith('/history')) {
+      failed = true;
+      throw new Error('offline');
+    }
+    return (await get(path, query)) as T;
+  });
+  const { controller, state, release } = await reopened(f, { hold: true });
+  release();
+  await vi.waitFor(() => expect(state().error?.message).toBe('offline'));
+  await controller.refresh('s');
+  expect(texts(state().saved?.messages)).toEqual(['message 0', 'message 1']);
+});
+
 it.each(['refresh', 'earlier page'])(
   'keeps both an earlier page and a refresh, the %s landing first',
   async (first) => {

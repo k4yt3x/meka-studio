@@ -180,6 +180,8 @@ interface Entry {
   compactionFrom?: number | undefined;
   /** The page of earlier history on its way. */
   loadingEarlier?: Promise<void> | undefined;
+  /** The last page of the history, read while this tab held none. */
+  lastPage?: Promise<SavedHistory> | undefined;
   notificationsSince: number;
   textIdleTimer?: ReturnType<typeof setTimeout>;
   preparing?: string;
@@ -1517,15 +1519,24 @@ export class SessionController {
     entry: Entry,
   ): Promise<(current: SavedHistory | undefined) => SavedHistory> {
     const path = sessionPath(entry.state.id) + '/history';
-    const held = entry.state.saved;
+    let held = entry.state.saved;
     if (!held) {
-      const page = await this.api.get<Schema['HistoryResponse']>(
-        path,
-        { limit: this.pageSize() },
-        entry.abort.signal,
-      );
-      const saved = startHistory(page.items, page.position, page.next_before ?? undefined);
-      return () => saved;
+      // A read starting while the last page is on its way, as when the feed replays a turn's end
+      // as the session opens, waits for that page and reads on from it rather than read it again.
+      const reading = entry.lastPage;
+      const page = (entry.lastPage ??= this.api
+        .get<Schema['HistoryResponse']>(path, { limit: this.pageSize() }, entry.abort.signal)
+        .then((page) => startHistory(page.items, page.position, page.next_before ?? undefined)));
+      try {
+        held = await page;
+      } catch (error) {
+        if (entry.lastPage === page) entry.lastPage = undefined;
+        throw error;
+      }
+      if (!reading) {
+        const saved = held;
+        return () => saved;
+      }
     }
     // Positions are never reused, so what came after the last read is all there is to read; a
     // rewind or a join among it says what it took back.
