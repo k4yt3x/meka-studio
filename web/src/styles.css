@@ -6363,10 +6363,12 @@ a.menu-item {
   min-height: 0;
   overflow: hidden;
   background: var(--bg);
-  padding: 6px 4px 0 8px;
 }
+/* The padding goes on xterm's own element: fitting the terminal takes the host's whole height as
+   room for rows and subtracts only this element's padding. */
 .terminal-host .xterm {
   height: 100%;
+  padding: 6px 4px 0 8px;
 }
 .terminal-keys {
   display: flex;

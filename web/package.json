@@ -1,6 +1,6 @@
 {
   "name": "meka-studio",
-  "version": "0.45.0",
+  "version": "0.45.1",
   "private": true,
   "description": "The web interface for Meka",
   "license": "AGPL-3.0-or-later",
