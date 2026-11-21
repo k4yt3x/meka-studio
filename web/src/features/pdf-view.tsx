@@ -273,7 +273,7 @@ export function PdfView({
         {query !== undefined && (
           <FindBar
             field={findField}
-            className="pdf-find"
+            className="editor-find"
             label="Find in the PDF"
             query={query}
             count={

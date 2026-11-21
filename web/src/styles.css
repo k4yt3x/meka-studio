@@ -2039,7 +2039,7 @@ pre.bounded {
   width: auto;
   min-width: 150px;
 }
-/* A bar to find text with, in a PDF or the conversation. */
+/* A bar to find text with, in a PDF, a terminal or the conversation. */
 .find-bar {
   display: flex;
   align-items: center;
@@ -2065,16 +2065,17 @@ pre.bounded {
   min-height: 26px;
   padding: 5px;
 }
-.pdf-find {
+/* In an editor tab, above what it finds text in: a PDF or a terminal. */
+.editor-find {
   flex-shrink: 0;
   gap: 4px;
   padding: 3px 6px 3px 12px;
   border-bottom: 1px solid var(--border);
 }
-.pdf-find input {
+.editor-find input {
   max-width: 320px;
 }
-.pdf-find .find-bar-count {
+.editor-find .find-bar-count {
   margin-right: auto;
   padding-left: 4px;
 }

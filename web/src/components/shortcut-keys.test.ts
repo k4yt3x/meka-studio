@@ -111,6 +111,33 @@ describe('shortcut matching', () => {
     expect(matchesShortcut('newTerminal', backquote, pc)).toBe(false);
   });
 
+  it('copies and pastes in a terminal with Shift, leaving Ctrl+C and Ctrl+V to the shell', () => {
+    const ctrlShiftC = key({ key: 'C', code: 'KeyC' });
+    expect(matchesShortcut('copyFromTerminal', ctrlShiftC, pc)).toBe(true);
+    expect(matchesShortcut('copyFromTerminal', { ...ctrlShiftC, shiftKey: false }, pc)).toBe(false);
+    expect(matchesShortcut('pasteIntoTerminal', key({ key: 'V', code: 'KeyV' }), pc)).toBe(true);
+    expect(matchesShortcut('pasteIntoTerminal', key({ key: 'v', shiftKey: false }), pc)).toBe(
+      false,
+    );
+    expect(shortcutBindings('copyFromTerminal', mac)).toEqual([]);
+  });
+
+  it('finds in a terminal with Ctrl+Shift+F, or Cmd+F, leaving Ctrl+F to the shell', () => {
+    const ctrlShiftF = key({ key: 'F', code: 'KeyF' });
+    expect(matchesShortcut('findInTerminal', ctrlShiftF, pc)).toBe(true);
+    expect(matchesShortcut('findInTerminal', { ...ctrlShiftF, shiftKey: false }, pc)).toBe(false);
+    const cmdF = key({ key: 'f', code: 'KeyF', ctrlKey: false, metaKey: true, shiftKey: false });
+    expect(matchesShortcut('findInTerminal', cmdF, mac)).toBe(true);
+    expect(matchesShortcut('findInTerminal', ctrlShiftF, mac)).toBe(false);
+  });
+
+  it('closes a tab with Ctrl+Shift+W in the desktop app, as a terminal leaves it', () => {
+    const ctrlShiftW = key({ key: 'W', code: 'KeyW' });
+    expect(matchesShortcut('closeTab', ctrlShiftW, { ...pc, desktop: true })).toBe(true);
+    expect(matchesShortcut('closeTab', ctrlShiftW, pc)).toBe(false);
+    expect(matchesShortcut('closeTab', ctrlShiftW, { ...mac, desktop: true })).toBe(false);
+  });
+
   it('keeps the desktop app’s keys out of browsers, which take them first', () => {
     const app = { ...pc, desktop: true };
     const ctrlN = key({ key: 'n', code: 'KeyN', shiftKey: false });

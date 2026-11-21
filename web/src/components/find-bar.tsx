@@ -5,7 +5,7 @@ import { Button } from './ui/button';
 /**
  * A bar to find text with: what is looked for, where the match shown is among them, and buttons to
  * go to the previous and next match and to stop. In the field, Enter and Shift+Enter go to the next
- * and previous match, and Escape stops.
+ * and previous match, the other way round with `enterUp`, and Escape stops.
  */
 export function FindBar({
   field,
@@ -17,6 +17,7 @@ export function FindBar({
   onQuery,
   onStep,
   onStop,
+  enterUp = false,
 }: {
   field: RefObject<HTMLInputElement | null>;
   /** Where the bar sits. */
@@ -31,7 +32,11 @@ export function FindBar({
   onQuery: (text: string) => void;
   onStep: (step: -1 | 1) => void;
   onStop: () => void;
+  /** Whether Enter goes to the previous match, above, as terminals have it. */
+  enterUp?: boolean;
 }) {
+  const up = enterUp ? 'Enter' : 'Shift+Enter';
+  const down = enterUp ? 'Shift+Enter' : 'Enter';
   return (
     <div className={`find-bar ${className}`} role="search">
       <input
@@ -43,7 +48,7 @@ export function FindBar({
         onKeyDown={(event) => {
           if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
             event.preventDefault();
-            onStep(event.shiftKey ? -1 : 1);
+            onStep(event.shiftKey === enterUp ? 1 : -1);
           } else if (event.key === 'Escape') {
             event.preventDefault();
             onStop();
@@ -60,7 +65,7 @@ export function FindBar({
         size="icon"
         variant="ghost"
         aria-label="Previous match"
-        title="Previous match (Shift+Enter)"
+        title={`Previous match (${up})`}
         disabled={!found}
         onClick={() => onStep(-1)}
       >
@@ -70,7 +75,7 @@ export function FindBar({
         size="icon"
         variant="ghost"
         aria-label="Next match"
-        title="Next match (Enter)"
+        title={`Next match (${down})`}
         disabled={!found}
         onClick={() => onStep(1)}
       >

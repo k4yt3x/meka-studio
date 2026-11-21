@@ -22,7 +22,31 @@ export const shortcuts = {
     label: 'New terminal',
     keys: [{ key: '`', code: 'Backquote', ctrl: true, shift: true }],
   },
-  closeTab: { label: 'Close tab', keys: [{ key: 'w', mod: true, desktop: true }] },
+  // In a terminal, as terminal emulators have them, leaving Ctrl+C, Ctrl+V and Ctrl+F to the shell;
+  // macOS copies and pastes with Cmd+C and Cmd+V there.
+  copyFromTerminal: {
+    label: 'Copy from terminal',
+    keys: [{ key: 'c', ctrl: true, shift: true, system: 'other' }],
+  },
+  pasteIntoTerminal: {
+    label: 'Paste into terminal',
+    keys: [{ key: 'v', ctrl: true, shift: true, system: 'other' }],
+  },
+  findInTerminal: {
+    label: 'Find in terminal',
+    keys: [
+      { key: 'f', ctrl: true, shift: true, system: 'other' },
+      { key: 'f', mod: true, system: 'apple' },
+    ],
+  },
+  // Ctrl+Shift+W too, which a terminal leaves to the page, as terminal emulators have it.
+  closeTab: {
+    label: 'Close tab',
+    keys: [
+      { key: 'w', mod: true, desktop: true },
+      { key: 'w', ctrl: true, shift: true, system: 'other', desktop: true },
+    ],
+  },
   // Control on macOS too, as Safari and VS Code have it.
   nextTab: {
     label: 'Next tab',

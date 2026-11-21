@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Terminals copy what is selected with Ctrl+Shift+C, and find text with Ctrl+Shift+F.
+- In the desktop app, Ctrl+Shift+W closes a terminal's tab.
+
 ## [0.44.0] - 2026-11-20
 
 ### Added

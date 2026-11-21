@@ -1,18 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { Terminal as Xterm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
+import { SearchAddon, type ISearchOptions } from '@xterm/addon-search';
 import '@xterm/xterm/css/xterm.css';
 import { useDesktopApp, useRuntime } from '../connections/context';
 import { Button } from '../components/ui/button';
 import { useMediaQuery } from '../components/media-query';
+import { useDarkTheme } from '../components/theme';
+import { copyText } from '../components/clipboard';
+import { FindBar } from '../components/find-bar';
 import { TERMINAL_FONT } from '../connections/storage';
 import { appleKeyboard, matchesShortcut, type Shortcut } from '../components/shortcut-keys';
 import { followZoomWheel, zoomStep } from '../components/text-zoom';
 import type { Gateway } from '../api/gateway';
 
 /**
- * The page's shortcuts that reach it from the terminal. The others' keys are the shell's, such as
- * Ctrl+R, Ctrl+W, F5 and Alt with the arrows.
+ * The page's shortcuts that reach it from the terminal. So do those of Ctrl+Shift with a letter the
+ * terminal does not take for itself, such as Ctrl+Shift+O and Ctrl+Shift+W. The others' keys are
+ * the shell's, such as Ctrl+R, Ctrl+W, F5 and Alt with the arrows.
  */
 const PAGE_SHORTCUTS: readonly Shortcut[] = [
   'toggleTerminal',
@@ -27,6 +32,23 @@ const PAGE_SHORTCUTS: readonly Shortcut[] = [
   'fullScreen',
   'openSettings',
 ];
+
+/** The most matches marked when finding, past which the count says there are more. */
+const MAX_MATCHES = 1000;
+
+/**
+ * How the matches found are marked, in the colors of the conversation's (`styles.css`). The one
+ * shown is selected too, which draws over its mark.
+ */
+function marks(dark: boolean): NonNullable<ISearchOptions['decorations']> {
+  const [match, shown] = dark ? ['#6b5314', '#d97706'] : ['#fde68a', '#f59e0b'];
+  return {
+    matchBackground: match,
+    activeMatchBackground: shown,
+    matchOverviewRuler: match,
+    activeMatchColorOverviewRuler: shown,
+  };
+}
 
 /** What the extra keys type. */
 const KEYS: { label: string; title: string; data: string }[] = [
@@ -91,7 +113,17 @@ export function TerminalView({
   const [ctrlOn, setCtrlOn] = useState(false);
   const [state, setState] = useState<'connecting' | 'open' | 'lost' | 'signed-out'>('connecting');
   const [attempt, setAttempt] = useState(0);
-  const terminal = useRef<{ xterm: Xterm; refit: () => void } | undefined>(undefined);
+  const terminal = useRef<{ xterm: Xterm; search: SearchAddon; refit: () => void } | undefined>(
+    undefined,
+  );
+  /** What is looked for in the terminal's output, while finding. */
+  const [query, setQuery] = useState<string>();
+  /** The match shown, of how many, as the search last said. */
+  const [found, setFound] = useState<{ index: number; count: number }>();
+  /** Goes up each time finding is asked for, to select what was typed again. */
+  const [findAsked, setFindAsked] = useState(0);
+  const findField = useRef<HTMLInputElement>(null);
+  const finding = query !== undefined;
   const ended = useRef(onEnded);
   const zoom = useRef(onZoom);
   const focus = useRef(takeFocus);
@@ -115,6 +147,8 @@ export function TerminalView({
     if (!element) return;
     const dark = document.documentElement.classList.contains('dark');
     const xterm = new Xterm({
+      // Finding marks the matches with decorations, which xterm offers as a proposed API.
+      allowProposedApi: true,
       cursorBlink: true,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
       fontSize: initialFont.current,
@@ -123,6 +157,11 @@ export function TerminalView({
     });
     const fit = new FitAddon();
     xterm.loadAddon(fit);
+    const search = new SearchAddon({ highlightLimit: MAX_MATCHES });
+    xterm.loadAddon(search);
+    const counted = search.onDidChangeResults(({ resultIndex, resultCount }) =>
+      setFound({ index: resultIndex, count: resultCount }),
+    );
     xterm.open(element);
     // The page's theme changing, by Settings or the system's, changes the terminal's too.
     const themed = new MutationObserver(() => {
@@ -138,6 +177,17 @@ export function TerminalView({
       // The page's shortcuts, to move among the tabs and panels, are not keys for the shell.
       const context = { apple: appleKeyboard(), desktop: inDesktop.current };
       if (PAGE_SHORTCUTS.some((action) => matchesShortcut(action, event, context))) return false;
+      // Taken from the browser as well, whose developer tools would open on these keys.
+      if (matchesShortcut('copyFromTerminal', event, context)) {
+        event.preventDefault();
+        if (event.type === 'keydown' && xterm.hasSelection())
+          copyText(xterm.getSelection()).catch((error: unknown) => {
+            console.error('Could not copy from the terminal:', error);
+          });
+        return false;
+      }
+      // The browser pastes on these keys, into the terminal's own paste handling.
+      if (matchesShortcut('pasteIntoTerminal', event, context)) return false;
       // Ctrl+Shift+- is the shell's: undo, in readline and Emacs.
       if (event.shiftKey && event.code === 'Minus') return true;
       // The keys that size the page size the terminal's text instead.
@@ -168,7 +218,7 @@ export function TerminalView({
       }
       send({ type: 'resize', cols: xterm.cols, rows: xterm.rows });
     };
-    terminal.current = { xterm, refit: resize };
+    terminal.current = { xterm, search, refit: resize };
     const observer = new ResizeObserver(resize);
     observer.observe(element);
     resize();
@@ -181,6 +231,7 @@ export function TerminalView({
       themed.disconnect();
       observer.disconnect();
       typed.dispose();
+      counted.dispose();
       xterm.dispose();
       terminal.current = undefined;
     };
@@ -189,6 +240,42 @@ export function TerminalView({
   useEffect(() => {
     if (active && focus.current()) terminal.current?.xterm.focus();
   }, [active, asked]);
+  useEffect(() => {
+    if (finding) findField.current?.select();
+  }, [finding, findAsked]);
+  const dark = useDarkTheme();
+  // The theme changing marks the matches again in its colors, keeping the one shown.
+  const remark = useEffectEvent(() => {
+    const current = terminal.current;
+    if (!current || !query) return;
+    current.search.clearDecorations();
+    current.search.findNext(query, { decorations: marks(dark) });
+  });
+  useEffect(() => {
+    remark();
+  }, [dark]);
+  /** Shows the match above, or below, the one shown, or else the last. */
+  function goToMatch(text: string, step: -1 | 1) {
+    const current = terminal.current;
+    if (!current) return;
+    const options = { decorations: marks(dark) };
+    if (step === -1) current.search.findPrevious(text, options);
+    else current.search.findNext(text, options);
+  }
+  function find(text: string) {
+    setQuery(text);
+    if (text) goToMatch(text, -1);
+    else {
+      terminal.current?.search.clearDecorations();
+      setFound(undefined);
+    }
+  }
+  function stopFinding() {
+    setQuery(undefined);
+    setFound(undefined);
+    terminal.current?.search.clearDecorations();
+    terminal.current?.xterm.focus();
+  }
   function send(message: Record<string, unknown>) {
     const current = socket.current;
     if (current?.readyState === WebSocket.OPEN) current.send(JSON.stringify(message));
@@ -283,8 +370,31 @@ export function TerminalView({
       socket.current = undefined;
     };
   }, [id, attempt, runtime]);
+  const total = found && found.count >= MAX_MATCHES ? `${MAX_MATCHES}+` : String(found?.count);
+  const count =
+    !query || !found
+      ? ''
+      : !found.count
+        ? 'No matches'
+        : found.index >= 0
+          ? `${found.index + 1} of ${total}`
+          : `${total} matches`;
   return (
-    <div className="terminal-view">
+    <div
+      className="terminal-view"
+      onKeyDown={(event) => {
+        // In the terminal or the find bar's field.
+        const context = { apple: appleKeyboard(), desktop };
+        if (!matchesShortcut('findInTerminal', event.nativeEvent, context)) return;
+        event.preventDefault();
+        // What is selected in the terminal is what is looked for, as in the conversation.
+        const selected = terminal.current?.xterm.getSelection().trim();
+        if (!finding && selected && !selected.includes('\n') && selected.length <= 200)
+          find(selected);
+        else setQuery((text) => text ?? '');
+        setFindAsked((asked) => asked + 1);
+      }}
+    >
       {state !== 'open' && (
         <div className="terminal-status" role="status">
           <span className="muted small">
@@ -300,6 +410,20 @@ export function TerminalView({
             </Button>
           )}
         </div>
+      )}
+      {finding && (
+        <FindBar
+          field={findField}
+          className="editor-find"
+          label="Find in the terminal"
+          query={query}
+          count={count}
+          found={Boolean(found?.count)}
+          onQuery={find}
+          onStep={(step) => query && goToMatch(query, step)}
+          onStop={stopFinding}
+          enterUp
+        />
       )}
       <div ref={host} className="terminal-host" />
       {coarse && (
