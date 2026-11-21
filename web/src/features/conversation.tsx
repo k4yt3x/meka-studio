@@ -132,8 +132,8 @@ function placePosition(node: HTMLElement, { top, anchor }: Position) {
 export function Conversation({ state }: { state: SessionState }) {
   const { api, controller, connection, connectionIssue } = useConnection();
   // A running sub-agent's feed tells which call in this session runs it, and what it is doing.
-  // Over HTTP/1.1 a browser holds about six connections to a server, and this session's feed and
-  // the server feed take two of them, so only the most recently active two are followed.
+  // Only the most recently active two are followed: joining a feed replays the recent events Meka
+  // holds of it, which can run to megabytes, and many of those crowd out all else the page loads.
   const subagents = useQuery(subagentsQuery(api, connection, state.id));
   const runningSubagents =
     subagents.data?.sessions
@@ -142,8 +142,10 @@ export function Conversation({ state }: { state: SessionState }) {
       .map((session) => session.id)
       .join(' ') ?? '';
   useEffect(() => {
-    for (const id of runningSubagents.split(' ').filter(Boolean)) controller?.watch(id);
+    controller?.watch(runningSubagents.split(' ').filter(Boolean));
   }, [controller, runningSubagents]);
+  // Only leaving lets go of them all; a change among them lets go of those no longer among them.
+  useEffect(() => () => controller?.watch([]), [controller]);
   const runtime = useRuntime();
   const draft = useTextDraft(runtime.storage, connection?.id ?? '', state.id);
   // A path picked in Files is added to the message being written.

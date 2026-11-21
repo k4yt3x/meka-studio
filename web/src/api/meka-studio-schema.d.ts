@@ -388,6 +388,49 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/feeds': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    /**
+     * Opens the page's stream. Its every line is `data: <key> <line>`, a line of the feed followed
+     *     under that key as the feed sent it; the key `!` says `opened <stream>` first, then
+     *     `started <key>` as a feed starts, `ended <key>` as it ends, and
+     *     `failed <key> <status> <retry-after seconds, or -> <problem>` when it could not be followed.
+     */
+    get: operations['open'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/feeds/{stream}/{key}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    /**
+     * Follows a feed on the stream `stream` under `key`, in place of what that key followed. How it
+     *     goes is said on the stream.
+     */
+    put: operations['follow'];
+    post?: never;
+    /** Lets go of what `key` follows on the stream `stream`. */
+    delete: operations['unfollow'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/files/delete': {
     parameters: {
       query?: never;
@@ -551,30 +594,6 @@ export interface paths {
     get?: never;
     put?: never;
     post: operations['finish_upload'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/files/watch': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    /**
-     * Changes to folders, as an event stream: a `change` event, its data the folder as asked for,
-     *     whenever what that holds may have changed, at most about once a second for each, after which it
-     *     is to be listed again. A folder that is not there, or goes away, is told of by a `gone` event,
-     *     and one that cannot be watched, or is no path, by an `unwatched` event; the others are followed
-     *     on. Events missed while the stream was not open are not told, so the folders are listed again on
-     *     reconnecting. One stream follows many folders: a browser holds few connections to a server.
-     */
-    post: operations['watch'];
     delete?: never;
     options?: never;
     head?: never;
@@ -1072,6 +1091,26 @@ export interface components {
      * @enum {string}
      */
     Folder: 'config' | 'data' | 'logs';
+    /** @description What a page asks its stream to follow. */
+    Follow:
+      | {
+          /** @description Whether the page answers the session's prompts, as Meka's `attend` asks. */
+          attend?: boolean | null;
+          cursor?: string | null;
+          /**
+           * @description Whether the page is in front, alerting of finished turns itself, so its device is sent
+           *     no push notifications of them; for the server feed.
+           */
+          focused?: boolean;
+          /** @enum {string} */
+          kind: 'feed';
+          path: string;
+        }
+      | {
+          /** @enum {string} */
+          kind: 'folders';
+          paths: string[];
+        };
     /** @description How a repository stands. */
     GitStatus: {
       /**
@@ -1461,11 +1500,6 @@ export interface components {
       minimum: string;
       /** @description The versions it was checked against. */
       verified: string[];
-    };
-    /** @description Folders to follow for changes. */
-    Watch: {
-      /** @description Each folder, at most 64, as the events name it. */
-      paths: string[];
     };
     /**
      * @description A step of the window's zoom.
@@ -2290,6 +2324,104 @@ export interface operations {
       };
     };
   };
+  open: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description The stream */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'text/event-stream': unknown;
+        };
+      };
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  follow: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        stream: string;
+        key: string;
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['Follow'];
+      };
+    };
+    responses: {
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      /** @description No such stream is open */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  unfollow: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        stream: string;
+        key: string;
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description No such stream is open */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
   delete_entry: {
     parameters: {
       query?: never;
@@ -2807,46 +2939,6 @@ export interface operations {
         };
       };
       409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Problem'];
-        };
-      };
-    };
-  };
-  watch: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': components['schemas']['Watch'];
-      };
-    };
-    responses: {
-      /** @description `change`, `gone` and `unwatched` events */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'text/event-stream': unknown;
-        };
-      };
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['Problem'];
-        };
-      };
-      403: {
         headers: {
           [name: string]: unknown;
         };

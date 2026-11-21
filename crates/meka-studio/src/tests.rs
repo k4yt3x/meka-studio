@@ -114,6 +114,35 @@ async fn stand_in_meka() -> (SocketAddr, Arc<Mutex<Seen>>) {
             "/v1/unauthorized",
             get(|| async { StatusCode::UNAUTHORIZED }),
         )
+        .route(
+            "/v1/sessions/resumed/feed",
+            get(|uri: axum::http::Uri, headers: HeaderMap| async move {
+                let from = headers
+                    .get("last-event-id")
+                    .and_then(|value| value.to_str().ok())
+                    .unwrap_or("-")
+                    .to_owned();
+                let said = format!("data: from {from} {}\n\n", uri.query().unwrap_or("-"));
+                let stream = futures_util::stream::iter([Ok::<_, std::io::Error>(said)])
+                    .chain(futures_util::stream::pending());
+                Response::builder()
+                    .header(header::CONTENT_TYPE, "text/event-stream")
+                    .body(Body::from_stream(stream))
+                    .unwrap()
+            }),
+        )
+        .route(
+            "/v1/sessions/idle/feed",
+            get(|| async {
+                (
+                    StatusCode::CONFLICT,
+                    Json(serde_json::json!({
+                        "type": "https://meka.bot/errors/session-not-loaded",
+                        "status": 409,
+                    })),
+                )
+            }),
+        )
         // Anything else answers with the path and query it came to, as written.
         .fallback(|uri: axum::http::Uri, body: Body| async move {
             let bytes = body.collect().await.map_or(0, |body| body.to_bytes().len());
@@ -350,6 +379,233 @@ async fn requests_to_meka_carry_its_token_and_not_the_browsers_credentials() {
     )
     .await;
     assert_eq!(openapi.status(), StatusCode::NOT_FOUND);
+}
+
+/// Reads `body` into `text` until it holds `needle`, waiting at most five seconds.
+async fn read_until(body: &mut Body, text: &mut String, needle: &str) {
+    while !text.contains(needle) {
+        let frame = tokio::time::timeout(Duration::from_secs(5), body.frame())
+            .await
+            .unwrap_or_else(|_| panic!("no {needle:?} in {text}"))
+            .unwrap()
+            .unwrap();
+        if let Ok(data) = frame.into_data() {
+            text.push_str(&String::from_utf8_lossy(&data));
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_page_s_stream_carries_each_feed_under_its_key_until_it_lets_it_go() {
+    let (app, router, _, _dir) = meka_studio().await;
+    let cookie = sign_in(&router).await;
+    let devices = send(
+        &router,
+        request("GET", "/api/account/devices")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    let device = json(devices).await[0]["id"].as_str().unwrap().to_owned();
+    let opened = send(
+        &router,
+        request("GET", "/api/feeds")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(opened.status(), StatusCode::OK);
+    let mut body = opened.into_body();
+    let mut text = String::new();
+    read_until(&mut body, &mut text, "data: ! opened ").await;
+    read_until(&mut body, &mut text, "\n\n").await;
+    let stream = text
+        .split("data: ! opened ")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_owned();
+    let follow = |key: &str, cookie: &str, follow: serde_json::Value| {
+        request("PUT", &format!("/api/feeds/{stream}/{key}"))
+            .header(header::COOKIE, cookie)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(follow.to_string()))
+            .unwrap()
+    };
+    let feed = serde_json::json!({"kind": "feed", "path": "/v1/sessions/s1/feed", "attend": true});
+    assert_eq!(
+        send(&router, follow("s1.0", &cookie, feed.clone()))
+            .await
+            .status(),
+        StatusCode::NO_CONTENT
+    );
+    read_until(&mut body, &mut text, "data: ! started s1.0\n").await;
+    // The feed's own lines, its change made a diff as on the way through.
+    read_until(
+        &mut body,
+        &mut text,
+        "data: s1.0 event: tool_call.completed\n",
+    )
+    .await;
+    read_until(&mut body, &mut text, "-line 25\\n+line twenty-five\\n").await;
+    assert!(text.contains("data: s1.0 id: 1\n"), "{text}");
+    assert!(!text.contains("\"old\""));
+    assert!(app.watching.is_watching(&device, "s1"));
+    // A feed Meka refuses is said to have failed, with Meka's problem.
+    let idle = serde_json::json!({"kind": "feed", "path": "/v1/sessions/idle/feed"});
+    send(&router, follow("idle", &cookie, idle)).await;
+    read_until(&mut body, &mut text, "data: ! failed idle 409 - {").await;
+    assert!(text.contains("session-not-loaded"), "{text}");
+    // A feed resumes from its cursor, and asks Meka whether the page attends.
+    let resumed = serde_json::json!({
+        "kind": "feed", "path": "/v1/sessions/resumed/feed", "cursor": "41", "attend": false,
+    });
+    send(&router, follow("r", &cookie, resumed)).await;
+    read_until(&mut body, &mut text, "data: r data: from 41 attend=false\n").await;
+    let broken = serde_json::json!({
+        "kind": "feed", "path": "/v1/sessions/resumed/feed", "cursor": "4\n1",
+    });
+    assert_eq!(
+        send(&router, follow("b", &cookie, broken)).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Only Meka's feeds, under keys of a few plain characters.
+    let turns = serde_json::json!({"kind": "feed", "path": "/v1/sessions/s1/turns"});
+    assert_eq!(
+        send(&router, follow("t", &cookie, turns)).await.status(),
+        StatusCode::BAD_REQUEST
+    );
+    assert_eq!(
+        send(&router, follow("a%20b", &cookie, feed.clone()))
+            .await
+            .status(),
+        StatusCode::BAD_REQUEST
+    );
+    // Another sign-in finds no such stream.
+    let other = sign_in(&router).await;
+    assert_eq!(
+        send(&router, follow("s1.1", &other, feed)).await.status(),
+        StatusCode::NOT_FOUND
+    );
+    // Let go of, a session's feed no longer marks its device as watching.
+    let unfollowed = send(
+        &router,
+        request("DELETE", &format!("/api/feeds/{stream}/s1.0"))
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(unfollowed.status(), StatusCode::NO_CONTENT);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!app.watching.is_watching(&device, "s1"));
+    // The page leaving closes its stream.
+    drop(body);
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let idle = serde_json::json!({"kind": "feed", "path": "/v1/feed"});
+    assert_eq!(
+        send(&router, follow("server", &cookie, idle))
+            .await
+            .status(),
+        StatusCode::NOT_FOUND
+    );
+}
+
+#[tokio::test]
+async fn a_device_saving_data_hears_at_once_that_a_feed_started() {
+    let (_app, router, _, _dir) = meka_studio().await;
+    let cookie = sign_in(&router).await;
+    let opened = send(
+        &router,
+        request("GET", "/api/feeds")
+            .header(header::COOKIE, &cookie)
+            .header("x-meka-studio-batch", "2000")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    let mut body = opened.into_body();
+    let mut text = String::new();
+    read_until(&mut body, &mut text, "\n\n").await;
+    let stream = text
+        .strip_prefix("data: ! opened ")
+        .unwrap()
+        .trim()
+        .to_owned();
+    let followed = send(
+        &router,
+        request("PUT", &format!("/api/feeds/{stream}/server"))
+            .header(header::COOKIE, &cookie)
+            .header(header::CONTENT_TYPE, "application/json")
+            .body(Body::from(r#"{"kind": "feed", "path": "/v1/feed"}"#))
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(followed.status(), StatusCode::NO_CONTENT);
+    // The feed's own lines wait for the batch; that it started goes ahead of them.
+    let mut frames = Vec::new();
+    for _ in 0..2 {
+        let frame = tokio::time::timeout(Duration::from_secs(5), body.frame())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        frames.push(String::from_utf8_lossy(&frame.into_data().unwrap()).into_owned());
+    }
+    assert_eq!(frames[0], "data: ! started server\n\n");
+    assert!(
+        frames[1].contains("data: server retry: 3000\n"),
+        "{frames:?}"
+    );
+}
+
+#[tokio::test]
+async fn a_page_s_compressed_stream_ends_whole_with_its_sign_in() {
+    let (_app, router, _, _dir) = meka_studio().await;
+    let cookie = sign_in(&router).await;
+    let opened = send(
+        &router,
+        request("GET", "/api/feeds")
+            .header(header::COOKIE, &cookie)
+            .header(header::ACCEPT_ENCODING, "gzip")
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(opened.headers()[header::CONTENT_ENCODING], "gzip");
+    let mut body = opened.into_body();
+    let mut compressed = Vec::new();
+    let first = tokio::time::timeout(Duration::from_secs(5), body.frame())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    compressed.extend_from_slice(&first.into_data().unwrap());
+    let out = send(
+        &router,
+        request("POST", "/api/auth/sign-out")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert_eq!(out.status(), StatusCode::NO_CONTENT);
+    let rest = tokio::time::timeout(Duration::from_secs(5), body.collect())
+        .await
+        .unwrap()
+        .unwrap()
+        .to_bytes();
+    compressed.extend_from_slice(&rest);
+    // A stream cut short would leave the gzip stream without its end, which reading refuses.
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(&compressed[..])
+        .read_to_string(&mut text)
+        .unwrap();
+    assert!(text.starts_with("data: ! opened "), "{text}");
 }
 
 #[tokio::test]
@@ -913,83 +1169,126 @@ async fn changes_are_staged_committed_and_read_back_from_the_history() {
 }
 
 #[tokio::test]
-async fn folders_watched_tell_of_their_changes_until_the_sign_in_ends() {
+async fn folders_followed_tell_of_their_changes_until_the_sign_in_ends() {
     let (_app, router, _, dir) = meka_studio().await;
     let cookie = sign_in(&router).await;
     let work = dir.path().join("work");
     std::fs::create_dir(work.join("inner")).unwrap();
-    let watch = |paths: serde_json::Value| {
-        request("POST", "/api/files/watch")
+    let opened = send(
+        &router,
+        request("GET", "/api/feeds")
+            .header(header::COOKIE, &cookie)
+            .body(Body::empty())
+            .unwrap(),
+    )
+    .await;
+    assert!(
+        opened.headers()[header::CONTENT_TYPE]
+            .to_str()
+            .unwrap()
+            .starts_with("text/event-stream")
+    );
+    let mut body = opened.into_body();
+    let mut seen = String::new();
+    read_until(&mut body, &mut seen, "data: ! opened ").await;
+    read_until(&mut body, &mut seen, "\n\n").await;
+    let stream = seen
+        .split("data: ! opened ")
+        .nth(1)
+        .unwrap()
+        .lines()
+        .next()
+        .unwrap()
+        .to_owned();
+    let follow = |key: &str, paths: serde_json::Value| {
+        request("PUT", &format!("/api/feeds/{stream}/{key}"))
             .header(header::COOKIE, &cookie)
             .header(header::CONTENT_TYPE, "application/json")
             .body(Body::from(
-                serde_json::json!({ "paths": paths }).to_string(),
+                serde_json::json!({ "kind": "folders", "paths": paths }).to_string(),
             ))
             .unwrap()
     };
+    // Following starts once its folders are watched, as the page lists them again then: a change
+    // as soon as it hears so is told, however many folders came before.
+    let mut crowd: Vec<String> = (0..40)
+        .map(|i| {
+            let folder = work.join(format!("d{i}"));
+            std::fs::create_dir(&folder).unwrap();
+            folder.display().to_string()
+        })
+        .collect();
+    let early = work.join("early");
+    std::fs::create_dir(&early).unwrap();
+    crowd.push(early.display().to_string());
+    send(&router, follow("early", serde_json::json!(crowd))).await;
+    read_until(&mut body, &mut seen, "data: ! started early\n").await;
+    std::fs::write(early.join("x"), "x").unwrap();
+    read_until(
+        &mut body,
+        &mut seen,
+        &format!(
+            "data: early event: change\ndata: early data: {}",
+            early.display()
+        ),
+    )
+    .await;
     let too_many: Vec<String> = (0..65).map(|i| format!("{}/{i}", work.display())).collect();
     assert_eq!(
-        send(&router, watch(serde_json::json!(too_many)))
+        send(&router, follow("many", serde_json::json!(too_many)))
             .await
             .status(),
         StatusCode::BAD_REQUEST
     );
     let missing = work.join("missing").display().to_string();
     let inner = work.join("inner").display().to_string();
-    let response = send(
+    let followed = send(
         &router,
-        watch(serde_json::json!([
-            work.display().to_string(),
-            inner,
-            missing,
-            "not/absolute"
-        ])),
+        follow(
+            "f",
+            serde_json::json!([work.display().to_string(), inner, missing, "not/absolute"]),
+        ),
     )
     .await;
-    assert_eq!(response.status(), StatusCode::OK);
-    assert!(
-        response.headers()[header::CONTENT_TYPE]
-            .to_str()
-            .unwrap()
-            .starts_with("text/event-stream")
-    );
-    let mut body = response.into_body().into_data_stream();
-    let mut seen = String::new();
-    let mut until = async |wanted: &str| {
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while !seen.contains(wanted) {
-                let Some(chunk) = body.next().await else {
-                    break;
-                };
-                seen.push_str(&String::from_utf8_lossy(&chunk.unwrap()));
-            }
-        })
-        .await
-        .unwrap();
-        assert!(seen.contains(wanted), "{wanted:?} in {seen:?}");
-    };
-    until(&format!("event: gone\ndata: {missing}")).await;
-    until("event: unwatched\ndata: not/absolute").await;
-    // A stream with nothing left to follow stays open, for its folders to be tried again by
-    // opening another rather than at once.
-    let lone = send(&router, watch(serde_json::json!([missing]))).await;
-    let mut lone = lone.into_body().into_data_stream();
-    let mut told = String::new();
-    let open = tokio::time::timeout(Duration::from_millis(1500), async {
-        while let Some(chunk) = lone.next().await {
-            told.push_str(&String::from_utf8_lossy(&chunk.unwrap()));
-        }
-    })
+    assert_eq!(followed.status(), StatusCode::NO_CONTENT);
+    read_until(
+        &mut body,
+        &mut seen,
+        &format!("data: f event: gone\ndata: f data: {missing}"),
+    )
     .await;
-    assert!(open.is_err(), "the stream stayed open");
-    assert!(told.contains("event: gone"), "{told:?}");
+    read_until(
+        &mut body,
+        &mut seen,
+        "data: f event: unwatched\ndata: f data: not/absolute",
+    )
+    .await;
+    // Folders with nothing left to follow stay followed, to be tried again by following them anew
+    // rather than at once.
+    send(&router, follow("lone", serde_json::json!([missing]))).await;
+    read_until(&mut body, &mut seen, "data: lone event: gone").await;
     std::fs::write(work.join("inner").join("new.txt"), "x").unwrap();
-    until(&format!("event: change\ndata: {inner}")).await;
+    read_until(
+        &mut body,
+        &mut seen,
+        &format!("data: f event: change\ndata: f data: {inner}"),
+    )
+    .await;
     std::fs::remove_dir_all(work.join("inner")).unwrap();
-    until(&format!("event: gone\ndata: {inner}")).await;
+    read_until(
+        &mut body,
+        &mut seen,
+        &format!("data: f event: gone\ndata: f data: {inner}"),
+    )
+    .await;
     std::fs::write(work.join("new.txt"), "x").unwrap();
-    until(&format!("event: change\ndata: {}", work.display())).await;
-    drop(until);
+    read_until(
+        &mut body,
+        &mut seen,
+        &format!("data: f event: change\ndata: f data: {}", work.display()),
+    )
+    .await;
+    assert!(!seen.contains("ended lone"), "{seen}");
     let out = send(
         &router,
         request("POST", "/api/auth/sign-out")
@@ -1000,7 +1299,7 @@ async fn folders_watched_tell_of_their_changes_until_the_sign_in_ends() {
     .await;
     assert_eq!(out.status(), StatusCode::NO_CONTENT);
     let ended = tokio::time::timeout(Duration::from_secs(5), async {
-        while body.next().await.is_some() {}
+        while let Some(Ok(_)) = body.frame().await {}
     })
     .await;
     assert!(ended.is_ok(), "the stream ends with the sign-in");

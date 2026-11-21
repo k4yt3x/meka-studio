@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ApiError } from '../api/client';
-import type { GatewayClient } from '../api/gateway';
+import type { Follow } from '../api/feed-channel';
 import { FolderWatcher } from './watch';
 
 /** A stream that sends what it is given, until it is ended or aborted. */
@@ -22,23 +22,17 @@ function stream(signal?: AbortSignal) {
 
 type Opened = { paths: string[]; signal: AbortSignal; stream: ReturnType<typeof stream> };
 
-/** A gateway whose watch streams are opened at once, or fail with what `failures` holds first. */
+/** A stream of feeds whose folders are followed at once, or fail with what `failures` holds first. */
 function gateway(...failures: Error[]) {
   const opened: Opened[] = [];
-  const response = vi.fn(
-    async (
-      _method: string,
-      _path: string,
-      options: { body: { paths: string[] }; signal: AbortSignal },
-    ) => {
-      const failure = failures.shift();
-      if (failure) throw failure;
-      const made = stream(options.signal);
-      opened.push({ paths: options.body.paths, signal: options.signal, stream: made });
-      return made.response;
-    },
-  );
-  return { client: { response } as unknown as GatewayClient, response, opened };
+  const response = vi.fn(async (follow: Follow, signal: AbortSignal) => {
+    const failure = failures.shift();
+    if (failure) throw failure;
+    const made = stream(signal);
+    opened.push({ paths: follow.kind === 'folders' ? follow.paths : [], signal, stream: made });
+    return made.response;
+  });
+  return { client: { follow: response }, response, opened };
 }
 
 beforeEach(() => vi.useFakeTimers());
@@ -127,6 +121,18 @@ it('lets go of folders that cannot be watched', async () => {
   expect(work).not.toHaveBeenCalled();
 });
 
+it('tries again in a while when the sign-in has too many streams open', async () => {
+  const { client, response, opened } = gateway(new ApiError(429, {}, 5000));
+  const watcher = new FolderWatcher(client, () => true);
+  const work = vi.fn();
+  watcher.follow('/work', work);
+  await vi.advanceTimersByTimeAsync(4000);
+  expect(response).toHaveBeenCalledTimes(1);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(opened).toHaveLength(1);
+  expect(work).toHaveBeenCalledTimes(1);
+});
+
 it('lets go while the page is hidden, and tells every folder when it is shown again', async () => {
   const { client, opened } = gateway();
   let visible = true;
@@ -149,14 +155,14 @@ it('lets go while the page is hidden, and tells every folder when it is shown ag
 
 it('closes every stream overtaken, however many open before one is answered', async () => {
   const answers: { signal: AbortSignal; answer: () => void }[] = [];
-  const response = vi.fn(
-    (_method: string, _path: string, options: { signal: AbortSignal }) =>
+  const follow = vi.fn(
+    (_follow: Follow, signal: AbortSignal) =>
       new Promise<Response>((resolve) => {
-        const made = stream(options.signal);
-        answers.push({ signal: options.signal, answer: () => resolve(made.response) });
+        const made = stream(signal);
+        answers.push({ signal, answer: () => resolve(made.response) });
       }),
   );
-  const watcher = new FolderWatcher({ response } as unknown as GatewayClient, () => true);
+  const watcher = new FolderWatcher({ follow }, () => true);
   watcher.follow('/a', vi.fn());
   await vi.advanceTimersByTimeAsync(100);
   answers[0]!.answer();

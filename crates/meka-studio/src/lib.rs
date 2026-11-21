@@ -13,6 +13,7 @@ pub mod cli;
 mod config;
 pub mod desktop;
 mod error;
+mod feeds;
 mod files;
 mod git;
 mod meka;

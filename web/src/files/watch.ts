@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { ApiError } from '../api/client';
-import type { GatewayClient } from '../api/gateway';
+import type { FeedChannel } from '../api/feed-channel';
 import { useRuntime } from '../connections/context';
 
 /** How long a dropped stream waits before following the folders again, at first and at most. */
@@ -15,13 +15,12 @@ const MAX_FOLDERS = 64;
 const GATHER_MS = 50;
 
 /**
- * The folders the page follows for changes, over one stream: a browser holds few connections to
- * a server, and the session's own feeds need theirs. Whoever follows a folder is told whenever what
- * it holds may have changed, and as following it starts: what changed before then, since it was
- * last listed, was not watched. Following another folder opens the stream again for all of them,
- * the old one closing only once the new one is open, so nothing is missed between them. A folder
- * that is not there is tried again, more and more rarely, as a build may delete one and make it
- * again. A hidden page lets go of them all, so tabs left open do not each hold a connection.
+ * The folders the page follows for changes, as one feed on the page's stream of feeds. Whoever
+ * follows a folder is told whenever what it holds may have changed, and as following it starts:
+ * what changed before then, since it was last listed, was not watched. Following another folder
+ * follows them all anew, the old feed let go only once the new one is followed, so nothing is
+ * missed between them. A folder that is not there is tried again, more and more rarely, as a build
+ * may delete one and make it again. A hidden page lets go of them all.
  */
 export class FolderWatcher {
   private followers = new Map<string, Set<() => void>>();
@@ -39,7 +38,7 @@ export class FolderWatcher {
   private goneDelay = RETRY_MS;
 
   constructor(
-    private gateway: GatewayClient,
+    private feeds: Pick<FeedChannel, 'follow'>,
     private visible: () => boolean = () => document.visibilityState === 'visible',
   ) {}
 
@@ -130,18 +129,17 @@ export class FolderWatcher {
   private async stream(paths: string[], told: string[], stop: AbortController, all: boolean) {
     let response: Response;
     try {
-      response = await this.gateway.response('POST', '/api/files/watch', {
-        body: { paths },
-        signal: stop.signal,
-      });
+      response = await this.feeds.follow({ kind: 'folders', paths }, stop.signal);
     } catch (error) {
       if (stop.signal.aborted || this.pending !== stop) return;
       this.pending = undefined;
-      // Folders that cannot be followed at all are not tried again; listing them says why.
+      // Folders that cannot be followed at all are not tried again; listing them says why. Too
+      // many streams open is tried again in a while.
       const status = error instanceof ApiError ? error.status : 0;
-      if (status >= 400 && status < 500) return;
+      if (status >= 400 && status < 500 && status !== 429) return;
+      const wait = error instanceof ApiError ? (error.retryAfter ?? 0) : 0;
       // The stream open, if any, follows on meanwhile.
-      this.later(this.delay, all || !this.connected);
+      this.later(Math.max(this.delay, wait), all || !this.connected);
       this.delay = Math.min(this.delay * 2, MAX_RETRY_MS);
       return;
     }
@@ -207,15 +205,15 @@ async function readEvents(response: Response, onEvent: (event: string, data: str
   }
 }
 
-const watchers = new WeakMap<GatewayClient, FolderWatcher>();
+const watchers = new WeakMap<FeedChannel, FolderWatcher>();
 
-/** The page's folder watcher, for `gateway`. */
-function watcherFor(gateway: GatewayClient) {
-  let watcher = watchers.get(gateway);
+/** The page's folder watcher, on its stream of `feeds`. */
+function watcherFor(feeds: FeedChannel) {
+  let watcher = watchers.get(feeds);
   if (!watcher) {
-    const made = new FolderWatcher(gateway);
+    const made = new FolderWatcher(feeds);
     document.addEventListener('visibilitychange', () => made.visibilityChanged());
-    watchers.set(gateway, (watcher = made));
+    watchers.set(feeds, (watcher = made));
   }
   return watcher;
 }
@@ -227,7 +225,7 @@ export function useFolderWatch(path: string | undefined, onChange: () => void) {
 
 /** Calls `onChange` with each of `paths` that may have changed: see {@link FolderWatcher}. */
 export function useFolderWatches(paths: readonly string[], onChange: (path: string) => void) {
-  const { gateway } = useRuntime();
+  const { feeds } = useRuntime();
   const changed = useRef(onChange);
   useEffect(() => {
     changed.current = onChange;
@@ -235,8 +233,8 @@ export function useFolderWatches(paths: readonly string[], onChange: (path: stri
   const key = paths.join('\0');
   useEffect(() => {
     if (!key) return;
-    const watcher = watcherFor(gateway);
+    const watcher = watcherFor(feeds);
     const stops = key.split('\0').map((path) => watcher.follow(path, () => changed.current(path)));
     return () => stops.forEach((stop) => stop());
-  }, [gateway, key]);
+  }, [feeds, key]);
 }

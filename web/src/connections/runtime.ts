@@ -8,6 +8,7 @@ import {
   type Schema,
 } from '../api/client';
 import { GatewayClient, type Gateway } from '../api/gateway';
+import { FeedChannel } from '../api/feed-channel';
 import { minimumVersion, supportsVersion } from '../api/version';
 import { SessionController } from '../session/controller';
 import { BrowserStorage, type Connection } from './storage';
@@ -36,6 +37,17 @@ export interface RuntimeState {
 function connectionName(account: Gateway['SessionView']) {
   return account.desktop ? 'Meka' : account.device_name;
 }
+/**
+ * Whether the page reached Meka Studio over HTTP/1.x, as the desktop app always does, or by a
+ * protocol it did not say: a browser then holds about six connections to a server, so Meka's feeds
+ * share one stream rather than a connection each. Over HTTP/2 or 3 each feed is a response of its
+ * own, which the browser paces and cancels apart from the others, so one feed's backlog never
+ * holds up another.
+ */
+function sharesConnections() {
+  const [page] = performance.getEntriesByType('navigation') as PerformanceNavigationTiming[];
+  return !['h2', 'h3'].includes(page?.nextHopProtocol ?? '');
+}
 /** How long batched event stream writes may wait on a device saving data, in milliseconds. */
 const DATA_SAVER_BATCH = 500;
 /** How many messages a conversation opens with on a device saving data. */
@@ -51,6 +63,11 @@ const PREFERENCE_SYNC_DELAY = 800;
 export class ConnectionRuntime {
   readonly notifications: BrowserNotifications;
   readonly gateway: GatewayClient;
+  /**
+   * The page's one stream of feeds, which carries folders' changes, and Meka's feeds too where
+   * the page's connections are few.
+   */
+  readonly feeds: FeedChannel;
   private state: RuntimeState = { auth: 'checking', busy: false };
   private listeners = new Set<() => void>();
   private generation = 0;
@@ -69,6 +86,13 @@ export class ConnectionRuntime {
     this.gateway = new GatewayClient(() =>
       this.signedOut('Your sign-in ended. Sign in again to continue.'),
     );
+    this.feeds = new FeedChannel(this.gateway, () => this.streamHeaders());
+  }
+  /** What a device saving data sends with its streams. */
+  private streamHeaders(): Record<string, string> {
+    return this.storage.getSnapshot().dataSaver
+      ? { 'X-Meka-Studio-Batch': String(DATA_SAVER_BATCH), 'X-Meka-Studio-Data-Saver': '1' }
+      : {};
   }
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -289,10 +313,6 @@ export class ConnectionRuntime {
     const timeout = setTimeout(() => {
       abort.abort(new Error('Meka did not answer within 10 seconds.'));
     }, 10_000);
-    const streamHeaders = (): Record<string, string> =>
-      this.storage.getSnapshot().dataSaver
-        ? { 'X-Meka-Studio-Batch': String(DATA_SAVER_BATCH), 'X-Meka-Studio-Data-Saver': '1' }
-        : {};
     const api: ApiClient = new ApiClient(
       mekaEndpoint(),
       () => {
@@ -302,7 +322,8 @@ export class ConnectionRuntime {
       (reachable) => {
         if (this.state.api === api) this.connectionChanged(reachable);
       },
-      streamHeaders,
+      () => this.streamHeaders(),
+      sharesConnections() ? this.feeds : undefined,
     );
     try {
       const info = await api.get<Schema['InfoResponse']>('/v1/info', undefined, abort.signal);

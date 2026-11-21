@@ -831,6 +831,123 @@
         }
       }
     },
+    "/api/feeds": {
+      "get": {
+        "tags": ["feeds"],
+        "summary": "Opens the page's stream. Its every line is `data: <key> <line>`, a line of the feed followed\nunder that key as the feed sent it; the key `!` says `opened <stream>` first, then\n`started <key>` as a feed starts, `ended <key>` as it ends, and\n`failed <key> <status> <retry-after seconds, or -> <problem>` when it could not be followed.",
+        "operationId": "open",
+        "responses": {
+          "200": {
+            "description": "The stream",
+            "content": {
+              "text/event-stream": {}
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/feeds/{stream}/{key}": {
+      "put": {
+        "tags": ["feeds"],
+        "summary": "Follows a feed on the stream `stream` under `key`, in place of what that key followed. How it\ngoes is said on the stream.",
+        "operationId": "follow",
+        "parameters": [
+          {
+            "name": "stream",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Follow"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {},
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such stream is open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["feeds"],
+        "summary": "Lets go of what `key` follows on the stream `stream`.",
+        "operationId": "unfollow",
+        "parameters": [
+          {
+            "name": "stream",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {},
+          "404": {
+            "description": "No such stream is open",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/files/delete": {
       "post": {
         "tags": ["files"],
@@ -1422,49 +1539,6 @@
             }
           },
           "409": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/files/watch": {
-      "post": {
-        "tags": ["files"],
-        "summary": "Changes to folders, as an event stream: a `change` event, its data the folder as asked for,\nwhenever what that holds may have changed, at most about once a second for each, after which it\nis to be listed again. A folder that is not there, or goes away, is told of by a `gone` event,\nand one that cannot be watched, or is no path, by an `unwatched` event; the others are followed\non. Events missed while the stream was not open are not told, so the folders are listed again on\nreconnecting. One stream follows many folders: a browser holds few connections to a server.",
-        "operationId": "watch",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/Watch"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "`change`, `gone` and `unwatched` events",
-            "content": {
-              "text/event-stream": {}
-            }
-          },
-          "400": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Problem"
-                }
-              }
-            }
-          },
-          "403": {
             "content": {
               "application/json": {
                 "schema": {
@@ -2744,6 +2818,53 @@
         "description": "A folder of the desktop app's that the interface can open in the file manager.",
         "enum": ["config", "data", "logs"]
       },
+      "Follow": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Meka's feed at `path`, its server feed `/v1/feed` or a session's `/v1/sessions/{id}/feed`,\nfrom `cursor`, as `Last-Event-ID` resumes it.",
+            "required": ["path", "kind"],
+            "properties": {
+              "attend": {
+                "type": ["boolean", "null"],
+                "description": "Whether the page answers the session's prompts, as Meka's `attend` asks."
+              },
+              "cursor": {
+                "type": ["string", "null"]
+              },
+              "focused": {
+                "type": "boolean",
+                "description": "Whether the page is in front, alerting of finished turns itself, so its device is sent\nno push notifications of them; for the server feed."
+              },
+              "kind": {
+                "type": "string",
+                "enum": ["feed"]
+              },
+              "path": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "description": "Changes to folders, at most 64, as `change`, `gone` and `unwatched` events whose data is\nthe folder as asked for. What changed while they were not followed is not told, so they are\nlisted again as following starts.",
+            "required": ["paths", "kind"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["folders"]
+              },
+              "paths": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "description": "What a page asks its stream to follow."
+      },
       "GitStatus": {
         "type": "object",
         "description": "How a repository stands.",
@@ -3532,20 +3653,6 @@
               "type": "string"
             },
             "description": "The versions it was checked against."
-          }
-        }
-      },
-      "Watch": {
-        "type": "object",
-        "description": "Folders to follow for changes.",
-        "required": ["paths"],
-        "properties": {
-          "paths": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "Each folder, at most 64, as the events name it."
           }
         }
       },

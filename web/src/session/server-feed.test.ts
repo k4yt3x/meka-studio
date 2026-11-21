@@ -68,7 +68,7 @@ it('resumes after the last event it received', async () => {
     '7',
     undefined,
     expect.any(AbortSignal),
-    undefined,
+    false,
   );
 });
 
@@ -107,14 +107,18 @@ it('rejoins at once, from where it stood, when the page comes to the front or le
   await vi.advanceTimersByTimeAsync(0);
   expect(first?.aborted).toBe(true);
   expect(f.stream).toHaveBeenCalledTimes(3);
-  expect(f.stream).toHaveBeenLastCalledWith('/v1/feed', '4', undefined, expect.any(AbortSignal), {
-    'X-Meka-Studio-Focused': '1',
-  });
+  expect(f.stream).toHaveBeenLastCalledWith(
+    '/v1/feed',
+    '4',
+    undefined,
+    expect.any(AbortSignal),
+    true,
+  );
   feed.focus(true);
   feed.focus(false);
   await vi.advanceTimersByTimeAsync(0);
   expect(f.stream).toHaveBeenCalledTimes(4);
-  expect(f.stream.mock.lastCall?.[4]).toBeUndefined();
+  expect(f.stream.mock.lastCall?.[4]).toBe(false);
 });
 
 it('backs off while the feed fails, and stops without the scope', async () => {

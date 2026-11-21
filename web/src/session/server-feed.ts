@@ -56,7 +56,7 @@ export class ServerFeed {
           this.cursor,
           undefined,
           AbortSignal.any([signal, request.signal]),
-          this.focused ? { 'X-Meka-Studio-Focused': '1' } : undefined,
+          this.focused,
         );
         this.retry = 1000;
         await this.read(response, request.signal, backlog);

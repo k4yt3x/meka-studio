@@ -620,6 +620,19 @@ it('reads a running sub-agent’s feed without attending, and lets it go when th
   expect(f.api.stream).toHaveBeenCalledTimes(1);
 });
 
+it('lets a running sub-agent’s feed go once nothing shows it or watches it', async () => {
+  const f = await fixture(true, undefined, { parent_id: 'parent', turn_in_flight: true });
+  await f.event('turn.started', { turn_id: 'run', source: 'parent', parent_id: 'parent' });
+  f.controller.watch(['s']);
+  f.controller.select(undefined);
+  await Promise.resolve();
+  expect(f.state().feed).toBe('connected');
+  // Watched no more, it goes though it still runs: its parent's call no longer reads it.
+  f.controller.watch([]);
+  expect(f.state().feed).toBe('closed');
+  expect(f.state().running).toBe(true);
+});
+
 it('opens an idle sub-agent’s feed when a follow-up runs it, until the run is gone', async () => {
   const f = await fixture(true, undefined, { parent_id: 'parent' });
   expect(f.state().feed).toBe('unavailable');

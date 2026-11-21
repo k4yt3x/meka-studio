@@ -2,19 +2,17 @@
 //! running any of it: everything is sandboxed and unsniffed, and only types a browser shows
 //! without running anything (pictures, sound, video, PDFs, plain text) are shown in place rather
 //! than downloaded. HTML and SVG in particular never run on Meka Studio's address, where a script
-//! would reach the terminal. `/api/files/watch` tells of changes to folders as they happen.
+//! would reach the terminal. [`watch_folders`] tells of changes to folders as they happen, on a
+//! page's stream of feeds.
 
-use std::{collections::HashSet, convert::Infallible, time::Duration};
+use std::{collections::HashSet, time::Duration};
 
 use axum::{
     Json,
     body::{Body, Bytes},
     extract::{Path, Query, State},
     http::{HeaderMap, HeaderValue, StatusCode, header},
-    response::{
-        IntoResponse, Response,
-        sse::{Event, KeepAlive, Sse},
-    },
+    response::{IntoResponse, Response},
 };
 use serde::Deserialize;
 use tokio::{io::AsyncReadExt, sync::mpsc};
@@ -40,11 +38,8 @@ const GATHER: Duration = Duration::from_millis(250);
 /// the time.
 const SPACING: Duration = Duration::from_secs(1);
 
-/// How often an idle change stream sends a comment, so proxies keep it open.
-const KEEP_ALIVE: Duration = Duration::from_secs(25);
-
-/// The most folders one change stream follows.
-const MAX_WATCHED: usize = 64;
+/// The most folders one follower follows.
+pub(crate) const MAX_WATCHED: usize = 64;
 
 /// What a raw file is sent with when it is shown in place: content types a browser displays
 /// without running anything.
@@ -78,13 +73,6 @@ pub(crate) struct ZipQuery {
 /// Entries chosen, to download as one zip under the folder they are all in.
 #[derive(Debug, Deserialize, ToSchema)]
 pub(crate) struct NewSelection {
-    pub(crate) paths: Vec<String>,
-}
-
-/// Folders to follow for changes.
-#[derive(Debug, Deserialize, ToSchema)]
-pub(crate) struct Watch {
-    /// Each folder, at most 64, as the events name it.
     pub(crate) paths: Vec<String>,
 }
 
@@ -218,33 +206,29 @@ pub(crate) async fn list(
     Ok(Json(listing))
 }
 
-/// Changes to folders, as an event stream: a `change` event, its data the folder as asked for,
-/// whenever what that holds may have changed, at most about once a second for each, after which it
-/// is to be listed again. A folder that is not there, or goes away, is told of by a `gone` event,
-/// and one that cannot be watched, or is no path, by an `unwatched` event; the others are followed
-/// on. Events missed while the stream was not open are not told, so the folders are listed again on
-/// reconnecting. One stream follows many folders: a browser holds few connections to a server.
-#[utoipa::path(
-    post,
-    path = "/api/files/watch",
-    tag = "files",
-    request_body = Watch,
-    responses((status = 200, description = "`change`, `gone` and `unwatched` events", content_type = "text/event-stream"), (status = 400, body = crate::error::Problem), (status = 403, body = crate::error::Problem))
-)]
-pub(crate) async fn watch(
-    State(app): State<App>,
-    signed: Signed,
-    Json(body): Json<Watch>,
-) -> ApiResult<Response> {
-    if body.paths.len() > MAX_WATCHED {
-        return Err(
-            FilesError::BadPath(format!("follow at most {MAX_WATCHED} folders at once")).into(),
-        );
-    }
+/// What following a folder tells: `change` whenever what it holds may have changed, at most about
+/// once a second, after which it is to be listed again; `gone` when it is not there, or goes away;
+/// `unwatched` when it cannot be watched, or is no path.
+#[derive(Debug)]
+pub(crate) struct FolderEvent {
+    pub(crate) kind: &'static str,
+    /// The folder, as it was asked for.
+    pub(crate) path: String,
+}
+
+/// Folders watched for a follower, and what it is told first of those that could not be.
+pub(crate) struct Folders {
+    followed: Vec<(String, Watching)>,
+    told: Vec<FolderEvent>,
+}
+
+/// Watches the folders `paths`, at most [`MAX_WATCHED`], for changes from now on. What changed
+/// before is not told, so they are listed again once this returns.
+pub(crate) async fn watch_folders(app: &App, paths: Vec<String>) -> Folders {
     let mut seen = HashSet::new();
     let mut followed = Vec::new();
     let mut told = Vec::new();
-    for asked in body.paths {
+    for asked in paths {
         if !seen.insert(asked.clone()) {
             continue;
         }
@@ -255,65 +239,65 @@ pub(crate) async fn watch(
         };
         match watching {
             Ok(watching) => followed.push((asked, watching)),
-            Err(FilesError::NotFound(_)) => told.push(Event::default().event("gone").data(asked)),
+            Err(FilesError::NotFound(_)) => told.push(FolderEvent {
+                kind: "gone",
+                path: asked,
+            }),
             Err(error) => {
                 tracing::debug!("could not watch {asked}: {error}");
-                told.push(Event::default().event("unwatched").data(asked));
+                told.push(FolderEvent {
+                    kind: "unwatched",
+                    path: asked,
+                });
             }
         }
     }
-    let (sender, receiver) = mpsc::channel::<Result<Event, Infallible>>(16);
-    let device = signed.session.id;
-    tokio::spawn(async move {
-        for event in told {
-            if sender.send(Ok(event)).await.is_err() {
+    Folders { followed, told }
+}
+
+impl Folders {
+    /// Tells `sender` of each folder until it is closed: first of those not there or not watched,
+    /// then of changes. With none left to follow, it waits on until it is let go of, as its folders
+    /// are tried again by following them anew.
+    pub(crate) async fn tell(self, sender: &mpsc::Sender<FolderEvent>) {
+        for event in self.told {
+            if sender.send(event).await.is_err() {
                 return;
             }
         }
         let mut streams = tokio::task::JoinSet::new();
-        for (asked, mut watching) in followed {
+        for (asked, mut watching) in self.followed {
             let sender = sender.clone();
             streams.spawn(async move { tell_changes(&asked, &mut watching, &sender).await });
         }
-        // Each folder's stream is stopped with the rest, however quiet it is. With none left to
-        // follow, the stream stays open until it is let go of, as its folders are tried again
-        // by opening another.
+        // Each folder's changes stop with the rest, however quiet it is.
         tokio::select! {
             () = async {
                 while streams.join_next().await.is_some() {}
                 std::future::pending::<()>().await;
             } => {}
-            () = app.auth.until_ended(&device) => {}
             () = sender.closed() => {}
         }
-    });
-    let stream =
-        Sse::new(ReceiverStream::new(receiver)).keep_alive(KeepAlive::new().interval(KEEP_ALIVE));
-    // Proxies that buffer, such as nginx, are told not to.
-    Ok(([("x-accel-buffering", "no")], stream).into_response())
+    }
 }
 
-/// Sends a `change` event for each burst of changes to the folder `watching` follows, named
-/// `asked`, and a `gone` event when it goes away.
-async fn tell_changes(
-    asked: &str,
-    watching: &mut Watching,
-    sender: &mpsc::Sender<Result<Event, Infallible>>,
-) {
+/// Tells `sender` of a `change` for each burst of changes to the folder `watching` follows, named
+/// `asked`, and of it being `gone` when it goes away.
+async fn tell_changes(asked: &str, watching: &mut Watching, sender: &mpsc::Sender<FolderEvent>) {
+    let event = |kind| FolderEvent {
+        kind,
+        path: asked.to_owned(),
+    };
     loop {
         if watching.changes.changed().await.is_err() {
-            if let Err(error) = sender
-                .send(Ok(Event::default().event("gone").data(asked)))
-                .await
-            {
-                tracing::debug!("a change stream was gone already: {error}");
+            if let Err(error) = sender.send(event("gone")).await {
+                tracing::debug!("a folder's follower was gone already: {error}");
             }
             return;
         }
         tokio::time::sleep(GATHER).await;
         watching.changes.mark_unchanged();
-        let change = Event::default().event("change").data(asked);
-        if sender.send(Ok(change)).await.is_err() {
+        if sender.send(event("change")).await.is_err() {
             return;
         }
         tokio::time::sleep(SPACING).await;

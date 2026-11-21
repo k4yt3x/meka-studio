@@ -6,6 +6,7 @@
 pub(crate) mod account;
 pub(crate) mod auth;
 pub(crate) mod desktop;
+pub(crate) mod feeds;
 pub(crate) mod files;
 pub(crate) mod git;
 pub(crate) mod push;
@@ -80,7 +81,8 @@ pub(crate) fn signed_in() -> OpenApiRouter<App> {
         .routes(routes!(status::status))
         .routes(routes!(files::roots))
         .routes(routes!(files::list))
-        .routes(routes!(files::watch))
+        .routes(routes!(feeds::open))
+        .routes(routes!(feeds::follow, feeds::unfollow))
         .routes(routes!(files::raw))
         .routes(routes!(files::zip))
         .routes(routes!(files::select_for_zip))

@@ -2,6 +2,13 @@ import type { components } from './schema';
 
 export type Schema = components['schemas'];
 export type Query = Record<string, string | number | boolean | undefined>;
+/** Follows one of Meka's feeds on the page's stream of feeds, as `FeedChannel` does. */
+export interface FeedFollower {
+  follow(
+    follow: { kind: 'feed'; path: string; cursor?: string; attend?: boolean; focused?: boolean },
+    signal: AbortSignal,
+  ): Promise<Response>;
+}
 export class ConnectionError extends Error {
   constructor(
     cause?: unknown,
@@ -111,6 +118,11 @@ export class ApiClient {
     private unauthorized: () => void = () => {},
     private connectionChanged?: (reachable: boolean) => void,
     private streamHeaders: StreamHeaders = () => ({}),
+    /**
+     * The page's stream of feeds, which carries Meka's feeds rather than a request each, where
+     * the page's connections are few; without it, each feed is a request of its own.
+     */
+    private feeds?: FeedFollower,
   ) {
     this.base = base.replace(/\/+$/, '') + '/';
   }
@@ -302,14 +314,43 @@ export class ApiClient {
     /** Session feeds only; the server feed has no one to ask. */
     attend: boolean | undefined,
     signal: AbortSignal,
-    headers?: Record<string, string>,
+    /** For the server feed: the page is in front, alerting of finished turns itself. */
+    focused = false,
   ): Promise<Response> {
+    if (this.feeds) {
+      const sequence = ++this.requestSequence;
+      try {
+        const response = await this.feeds.follow(
+          {
+            kind: 'feed',
+            path,
+            ...(cursor ? { cursor } : {}),
+            ...(attend !== undefined ? { attend } : {}),
+            ...(focused ? { focused } : {}),
+          },
+          AbortSignal.any([this.lifetime.signal, signal]),
+        );
+        this.reportConnection(true, sequence);
+        return response;
+      } catch (error) {
+        if (this.lifetime.signal.aborted || signal.aborted) throw error;
+        if (error instanceof ConnectionError) throw this.connectionFailure(error, sequence);
+        // Meka itself is down: as far as this client goes, the connection is.
+        if (
+          error instanceof ApiError &&
+          error.status === 502 &&
+          error.problem.type === MEKA_UNAVAILABLE
+        )
+          throw this.mekaUnavailable(error, sequence);
+        throw error;
+      }
+    }
     // Resume ids are sent only to the authenticated API, never content URLs.
     return this.response('GET', path, {
       query: { attend, ...(cursor ? { last_event_id: cursor } : {}) },
       accept: 'text/event-stream',
       signal,
-      ...(headers ? { headers } : {}),
+      ...(focused ? { headers: { 'X-Meka-Studio-Focused': '1' } } : {}),
     });
   }
   async blob(path: string, query?: Query, signal?: AbortSignal): Promise<Blob> {

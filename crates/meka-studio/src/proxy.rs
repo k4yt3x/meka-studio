@@ -86,7 +86,7 @@ const BATCH_MILLIS: std::ops::RangeInclusive<u64> = 100..=2_000;
 const RESPONSE_POLICY: &str = "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'";
 
 /// How much a batch holds before it is sent anyway.
-const MAX_BATCH_BYTES: usize = 256 * 1024;
+pub(crate) const MAX_BATCH_BYTES: usize = 256 * 1024;
 
 /// Which devices are watching which Meka sessions, and which have a page in front: a count per
 /// sign-in and what its streams say of it.
@@ -302,15 +302,8 @@ pub(crate) async fn forward(
         return Ok(built);
     }
     let gzip = accepts_gzip(&parts.headers);
-    let batch = parts
-        .headers
-        .get(BATCH_HEADER)
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| value.parse::<u64>().ok())
-        .map(|millis| {
-            Duration::from_millis(millis.clamp(*BATCH_MILLIS.start(), *BATCH_MILLIS.end()))
-        });
-    let lean = parts.headers.get(DATA_SAVER_HEADER).is_some();
+    let batch = batch_of(&parts.headers);
+    let lean = is_lean(&parts.headers);
     let guard = streamed_session(rest, &parts.method)
         .map(|session| app.watching.watch(&signed.session.id, &session))
         .or_else(|| {
@@ -351,6 +344,22 @@ pub(crate) async fn forward(
     Ok(built.into_response())
 }
 
+/// How long a stream's writes may wait to be sent together, as a device saving data asks.
+pub(crate) fn batch_of(headers: &HeaderMap) -> Option<Duration> {
+    headers
+        .get(BATCH_HEADER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .map(|millis| {
+            Duration::from_millis(millis.clamp(*BATCH_MILLIS.start(), *BATCH_MILLIS.end()))
+        })
+}
+
+/// Whether a device saving data asks to leave commands' streamed output out of a stream.
+pub(crate) fn is_lean(headers: &HeaderMap) -> bool {
+    headers.get(DATA_SAVER_HEADER).is_some()
+}
+
 /// Whether a request to Meka failed for the browser's body passing the size limit.
 fn is_too_large(error: &reqwest::Error) -> bool {
     let mut source: Option<&(dyn std::error::Error + 'static)> = Some(error);
@@ -364,7 +373,7 @@ fn is_too_large(error: &reqwest::Error) -> bool {
 }
 
 /// Whether a request's `Accept-Encoding` takes gzip.
-fn accepts_gzip(headers: &HeaderMap) -> bool {
+pub(crate) fn accepts_gzip(headers: &HeaderMap) -> bool {
     headers
         .get_all(header::ACCEPT_ENCODING)
         .iter()
@@ -478,7 +487,7 @@ impl Relay {
 
 /// What `rewriter` makes of `chunk`, worked out off the async runtime when it may complete a large
 /// frame; `None` if that work failed.
-async fn rewrite(rewriter: &mut Rewriter, chunk: Bytes) -> Option<Vec<u8>> {
+pub(crate) async fn rewrite(rewriter: &mut Rewriter, chunk: Bytes) -> Option<Vec<u8>> {
     if !rewriter.is_heavy(&chunk) {
         return Some(rewriter.push(&chunk));
     }
@@ -501,7 +510,10 @@ async fn rewrite(rewriter: &mut Rewriter, chunk: Bytes) -> Option<Vec<u8>> {
 }
 
 /// `bytes` compressed by `encoder` if there is one; nothing if there are no bytes.
-fn compress(encoder: &mut Option<Gzip>, bytes: Vec<u8>) -> Result<Option<Bytes>, std::io::Error> {
+pub(crate) fn compress(
+    encoder: &mut Option<Gzip>,
+    bytes: Vec<u8>,
+) -> Result<Option<Bytes>, std::io::Error> {
     if bytes.is_empty() {
         return Ok(None);
     }
@@ -513,7 +525,7 @@ fn compress(encoder: &mut Option<Gzip>, bytes: Vec<u8>) -> Result<Option<Bytes>,
 }
 
 /// Sends `bytes` on, if there are any; whether the browser is still there.
-async fn forward_bytes(
+pub(crate) async fn forward_bytes(
     sender: &mpsc::Sender<Result<Bytes, std::io::Error>>,
     bytes: Result<Option<Bytes>, std::io::Error>,
 ) -> bool {

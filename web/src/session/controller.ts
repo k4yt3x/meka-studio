@@ -153,6 +153,8 @@ interface Entry {
   cursor?: string;
   selected: boolean;
   followed: boolean;
+  /** A running sub-agent's, read for the call in its parent that runs it. */
+  watched: boolean;
   epoch: number;
   snapshotEpoch: number;
   snapshotDeferred?: boolean;
@@ -320,6 +322,8 @@ export class SessionController {
   private listeners = new Set<() => void>();
   private snapshot: SessionState[] = [];
   private selected: string | undefined;
+  /** The running sub-agents whose feeds are read for their parent's calls. */
+  private watched = new Set<string>();
   private disposed = false;
   private completionListeners = new Set<(completion: TurnCompletion) => void>();
   onCompletion(listener: (completion: TurnCompletion) => void) {
@@ -539,6 +543,17 @@ export class SessionController {
     if (id) void this.ensure(id).catch(() => {});
   }
   private release(entry: Entry) {
+    // A sub-agent's feed is only read: it goes once nothing shows it, though it still runs.
+    if (
+      entry.state.session?.parent_id &&
+      !entry.selected &&
+      !entry.watched &&
+      !entry.state.approvals.length
+    ) {
+      entry.abort.abort();
+      this.publish(entry, { feed: 'closed' });
+      return;
+    }
     if (
       !entry.selected &&
       !entry.state.running &&
@@ -583,6 +598,7 @@ export class SessionController {
       abort: new AbortController(),
       selected: this.selected === id,
       followed: false,
+      watched: this.watched.has(id),
       epoch: entry?.epoch ?? 0,
       snapshotEpoch: 0,
       ...(entry?.reconcileEpoch !== undefined ? { reconcileEpoch: entry.reconcileEpoch } : {}),
@@ -2129,9 +2145,18 @@ export class SessionController {
       throw error;
     }
   }
-  /** Reads a sub-agent's feed while it runs, for the call in its parent that runs it. */
-  watch(id: string) {
-    void this.ensure(id).catch(() => {});
+  /**
+   * Reads the feeds of the running sub-agents `ids`, for the calls in their parent that run them,
+   * letting go of those read before and not now.
+   */
+  watch(ids: readonly string[]) {
+    const before = this.watched;
+    this.watched = new Set(ids);
+    for (const [id, entry] of this.entries) {
+      entry.watched = this.watched.has(id);
+      if (before.has(id) && !entry.watched) this.release(entry);
+    }
+    for (const id of ids) void this.ensure(id).catch(() => {});
   }
   /**
    * Leaves the selection for another connection. Feeds stay open only for work in flight, so

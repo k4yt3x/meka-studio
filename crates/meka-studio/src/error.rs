@@ -155,15 +155,21 @@ impl From<anyhow::Error> for ApiError {
     }
 }
 
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let problem = Problem {
+impl ApiError {
+    /// The problem the error is answered with.
+    pub(crate) fn problem(&self) -> Problem {
+        Problem {
             kind: format!("urn:meka-studio:{}", self.kind),
             title: self.title.to_owned(),
             status: self.status.as_u16(),
-            detail: self.detail,
-        };
-        let mut response = (self.status, axum::Json(problem)).into_response();
+            detail: self.detail.clone(),
+        }
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let mut response = (self.status, axum::Json(self.problem())).into_response();
         response.headers_mut().insert(
             header::CONTENT_TYPE,
             HeaderValue::from_static("application/problem+json"),

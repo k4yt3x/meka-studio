@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Your messages show as you wrote them, line breaks included, rather than as Markdown.
 
+### Fixed
+
+- With many sub-agents running, the interface no longer freezes until some of them finish.
+
 ## [0.44.0] - 2026-11-20
 
 ### Added

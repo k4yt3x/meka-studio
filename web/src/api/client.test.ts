@@ -202,6 +202,36 @@ describe('authenticated transport', () => {
     expect(fetcher.mock.calls[0]?.[1]?.headers).not.toHaveProperty('X-Meka-Studio-Batch');
     expect(fetcher.mock.calls[1]?.[1]?.headers).toHaveProperty('X-Meka-Studio-Batch', '500');
   });
+  it('follows feeds on the stream of feeds, Meka being unavailable there a lost connection', async () => {
+    const report = vi.fn();
+    const follow = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new ApiError(502, {
+          type: 'urn:meka-studio:meka-unavailable',
+          detail: 'Meka Studio could not reach Meka.',
+        }),
+      )
+      .mockResolvedValueOnce(new Response(''));
+    const client = new ApiClient('https://example.org', undefined, report, undefined, { follow });
+    const signal = new AbortController().signal;
+    const error = await client
+      .stream('/v1/sessions/a/feed', '7', false, signal)
+      .catch((failure: unknown) => failure);
+    expect(error).toBeInstanceOf(ConnectionError);
+    expect((error as ConnectionError).message).toBe('Meka Studio could not reach Meka.');
+    expect(report).toHaveBeenLastCalledWith(false);
+    expect(follow).toHaveBeenLastCalledWith(
+      { kind: 'feed', path: '/v1/sessions/a/feed', cursor: '7', attend: false },
+      expect.any(AbortSignal),
+    );
+    await client.stream('/v1/feed', undefined, undefined, signal, true);
+    expect(report).toHaveBeenLastCalledWith(true);
+    expect(follow).toHaveBeenLastCalledWith(
+      { kind: 'feed', path: '/v1/feed', focused: true },
+      expect.any(AbortSignal),
+    );
+  });
   it('reports Meka being unavailable behind Meka Studio as a lost connection', async () => {
     vi.useFakeTimers();
     try {

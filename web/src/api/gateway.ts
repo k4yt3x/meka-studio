@@ -46,7 +46,14 @@ export class GatewayClient {
       body,
       signal,
       raw,
-    }: { query?: Query; body?: unknown; signal?: AbortSignal; raw?: BodyInit } = {},
+      headers,
+    }: {
+      query?: Query;
+      body?: unknown;
+      signal?: AbortSignal;
+      raw?: BodyInit;
+      headers?: Record<string, string>;
+    } = {},
   ): Promise<Response> {
     let response: Response;
     try {
@@ -56,6 +63,7 @@ export class GatewayClient {
           Accept: 'application/json',
           ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
           ...(raw !== undefined ? { 'Content-Type': 'application/octet-stream' } : {}),
+          ...headers,
         },
         ...(body !== undefined
           ? { body: JSON.stringify(body) }
