@@ -1,12 +1,16 @@
 import { useRef, useState } from 'react';
 
-export function ComposerResizeHandle({
+/** A grip on a text input's top edge: dragging it up makes the input taller. */
+export function InputResizeHandle({
+  label,
   height,
   min,
   max,
   inputId,
   onResize,
 }: {
+  /** What it resizes, as its name: `Resize commit message`. */
+  label: string;
   height: number;
   min: number;
   max: number;
@@ -18,10 +22,10 @@ export function ComposerResizeHandle({
   const clamp = (value: number) => Math.round(Math.max(min, Math.min(max, value)));
   return (
     <div
-      className="composer-resize-handle"
+      className="input-resize-handle"
       role="separator"
       tabIndex={0}
-      aria-label="Resize message input"
+      aria-label={label}
       aria-orientation="horizontal"
       aria-controls={inputId}
       aria-valuemin={min}

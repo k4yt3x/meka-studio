@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties } from 'react';
 import { useInfiniteQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import {
   ChevronRight,
@@ -14,6 +14,7 @@ import { useConnection, useGateway, useRuntime, useSettings } from '../connectio
 import { useAction } from '../components/actions';
 import { Empty, ErrorNotice, Loading } from '../components/common';
 import { Button } from '../components/ui/button';
+import { InputResizeHandle } from '../components/input-resize-handle';
 import { useMediaQuery } from '../components/media-query';
 import { useDarkTheme } from '../components/theme';
 import { ago } from '../components/time';
@@ -48,6 +49,8 @@ const COMMIT = '/api/git/commit';
 const MAX_LISTED = 1000;
 /** The most folders of changed files followed for changes, beside the repository's own. */
 const MAX_FOLLOWED = 16;
+/** The commit message's height at first and at least, about three lines. */
+const MESSAGE_HEIGHT = 88;
 
 /**
  * The repository the working directory `start` is in, as git says, in the session `place`: what
@@ -513,6 +516,21 @@ function CommitBox({ status, writes }: { status: Gateway['GitStatus']; writes: G
   const staged = changes.some((change) => change.staged !== 'none');
   const tracked = changes.some((change) => change.kind !== 'untracked');
   const can = (staged || tracked) && message.trim() !== '' && !action.busy;
+  const inputId = useId();
+  const box = useRef<HTMLDivElement>(null);
+  const [height, setHeight] = useState(MESSAGE_HEIGHT);
+  // It may take most of the panel; a height chosen past that comes back as the panel grows again.
+  const [maxHeight, setMaxHeight] = useState(MESSAGE_HEIGHT);
+  useEffect(() => {
+    const panel = box.current?.parentElement;
+    if (!panel) return;
+    const observer = new ResizeObserver(() =>
+      setMaxHeight(Math.max(MESSAGE_HEIGHT, Math.floor(panel.clientHeight * 0.6))),
+    );
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, []);
+  const shownHeight = Math.min(height, maxHeight);
   const commit = () => {
     if (!can) return;
     void action.run(async () => {
@@ -521,13 +539,21 @@ function CommitBox({ status, writes }: { status: Gateway['GitStatus']; writes: G
     });
   };
   return (
-    <div className="changes-commit">
-      <ErrorNotice error={action.error} onDismiss={action.reset} />
+    <div className="changes-commit" ref={box}>
+      <InputResizeHandle
+        label="Resize commit message"
+        inputId={inputId}
+        height={shownHeight}
+        min={MESSAGE_HEIGHT}
+        max={maxHeight}
+        onResize={setHeight}
+      />
       <textarea
+        id={inputId}
         className="changes-message"
         aria-label="Commit message"
         placeholder="Commit message"
-        rows={3}
+        style={{ height: shownHeight }}
         value={message}
         onChange={(event) => setMessage(event.target.value)}
         onKeyDown={(event) => {
@@ -537,6 +563,7 @@ function CommitBox({ status, writes }: { status: Gateway['GitStatus']; writes: G
           }
         }}
       />
+      <ErrorNotice error={action.error} onDismiss={action.reset} />
       <div className="changes-commit-bar">
         <Branch status={status} />
         <Button

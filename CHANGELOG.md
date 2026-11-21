@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Your messages show as you wrote them, line breaks included, rather than as Markdown.
+- The Git panel's commit message spans the panel, with a grip on top to resize it.
 
 ### Fixed
 

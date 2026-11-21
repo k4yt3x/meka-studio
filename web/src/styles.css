@@ -4314,9 +4314,9 @@ summary.compaction-rule:hover::after {
   background: var(--bg);
   box-shadow: 0 3px 14px #0001;
 }
-/* Inside the input's top edge, in the editor's padding; it reaches past the border so the edge
-   itself can be grabbed. */
-.composer-resize-handle {
+/* Inside an input's top edge, in its padding; it reaches past the edge's line so the line itself
+   can be grabbed. */
+.input-resize-handle {
   position: absolute;
   top: -6px;
   left: 50%;
@@ -4331,7 +4331,7 @@ summary.compaction-rule:hover::after {
   touch-action: none;
   border-radius: 5px;
 }
-.composer-resize-handle::before {
+.input-resize-handle::before {
   content: '';
   width: 28px;
   height: 3px;
@@ -4339,21 +4339,21 @@ summary.compaction-rule:hover::after {
   background: var(--muted);
   opacity: 0.5;
 }
-.composer-resize-handle:hover::before,
-:root:not([data-focus-input='pointer']) .composer-resize-handle:focus-visible::before,
-.composer-resize-handle[data-resizing='true']::before {
+.input-resize-handle:hover::before,
+:root:not([data-focus-input='pointer']) .input-resize-handle:focus-visible::before,
+.input-resize-handle[data-resizing='true']::before {
   background: var(--accent);
   opacity: 1;
 }
 /* The ring goes round the grip rather than the grab area, which crosses the input's border. */
-.composer-resize-handle:focus-visible {
+.input-resize-handle:focus-visible {
   outline: none;
 }
-.composer-resize-handle:focus-visible::before {
+.input-resize-handle:focus-visible::before {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
-:root[data-focus-input='pointer'] .composer-resize-handle:focus::before {
+:root[data-focus-input='pointer'] .input-resize-handle:focus::before {
   outline: none;
 }
 .composer:has(textarea:focus) {
@@ -6054,17 +6054,34 @@ details > summary:has(.inline-heading) {
 .file-browser > :is(.changes-commit, .changes-history) {
   margin-inline: 0;
 }
+/* The message is written on the panel itself, so the line above it is its only edge, lit while
+   it is typed in, and its grip sits on that line, as the message input's does. */
 .changes-commit {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 8px 12px 10px;
+  padding-bottom: 10px;
   border-top: 1px solid var(--border);
 }
+.changes-commit:has(> .changes-message:focus) {
+  border-top-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+}
+.changes-commit > :not(.changes-message, .input-resize-handle) {
+  margin-inline: 12px;
+}
 .changes-message {
-  min-height: 56px;
-  resize: vertical;
+  display: block;
+  min-height: 0;
+  padding: 14px 12px 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  resize: none;
   font-size: 0.9rem;
+}
+.changes-message:focus-visible {
+  outline: none;
 }
 .changes-commit-bar {
   display: flex;

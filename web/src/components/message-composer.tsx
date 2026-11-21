@@ -24,7 +24,7 @@ import { DEFAULT_INPUT_HEIGHT } from '../session/composer-options';
 import { useSessionNavigation } from '../features/session-navigation';
 import { useAction } from './actions';
 import { useReadingFontSize } from './reading-context';
-import { ComposerResizeHandle } from './composer-resize-handle';
+import { InputResizeHandle } from './input-resize-handle';
 import { MEKA_IMAGE_BYTES, shrinkFile } from './image-shrink';
 import { imageAccept, imageFiles, isAcceptedImage, pastedFiles } from './image-input';
 import { droppedPaths, dropsAsAddresses } from './dropped-paths';
@@ -309,8 +309,9 @@ export function MessageComposer({
         )}
         {above}
         <div className="composer" ref={box} data-dropping={dropping || undefined}>
-          <ComposerResizeHandle
+          <InputResizeHandle
             key={resizeGeneration}
+            label="Resize message input"
             inputId={inputId}
             height={inputHeight}
             min={DEFAULT_INPUT_HEIGHT}
