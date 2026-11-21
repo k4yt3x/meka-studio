@@ -47,6 +47,7 @@ import { useTextDraft } from '../session/drafts';
 import { subagentsQuery, useContextPositions, useSessionStates } from '../session/hooks';
 import { useMarkSeen } from '../session/unread';
 import { useTurnRecords } from '../session/turn-records';
+import { formatWhen } from '../session/turn-summary';
 import { Button } from '../components/ui/button';
 import { Empty, ErrorNotice, Loading } from '../components/common';
 import { NoticeMessage, TurnNotice } from '../components/notice-message';
@@ -129,6 +130,65 @@ function placePosition(node: HTMLElement, { top, anchor }: Position) {
     node.scrollTop +=
       found.getBoundingClientRect().top - node.getBoundingClientRect().top + anchor.into;
 }
+/** What the bar over the conversation shows of a prompt: its first line of words, or how many
+ * pictures it holds; cut far past any width the bar can show, and read no further, since a sent
+ * message renders again with every streamed token. */
+function promptLine(text: string, images: number) {
+  const line = /\S.{0,399}/
+    .exec(text)?.[0]
+    .trimEnd()
+    .replace(/[\uD800-\uDBFF]$/, '');
+  if (line) return line;
+  if (images) return images === 1 ? '1 image' : `${images} images`;
+}
+/** The line the bar over the conversation shows of a message, if it is a prompt. */
+function promptOf(message: ConversationMessage) {
+  if (turnKind(message) !== 'input') return;
+  const images = message.content.filter((block) => block.type === 'image').length;
+  return promptLine(messageText([message]), images);
+}
+/**
+ * What the bar over the conversation stands for, as Meka's screen picks it: the last prompt whose
+ * top has scrolled above the view; else, where the history loaded begins inside a turn that opened
+ * before it (`openedBefore`) and the view is past that beginning, the turn's prompt, not loaded.
+ * Nothing while the top of the next prompt is within `cover` pixels of the view's top, the bar and
+ * the room it keeps below it. A pixel of slack absorbs the rounding of a scroll that brought a
+ * prompt to just below that room.
+ */
+function promptAbove(
+  node: HTMLElement,
+  cover: number,
+  openedBefore: boolean,
+): HTMLElement | 'unloaded' | undefined {
+  const top = node.getBoundingClientRect().top;
+  const prompts = node.querySelectorAll<HTMLElement>('[data-prompt]');
+  let found = -1;
+  for (let low = 0, high = prompts.length - 1; low <= high;) {
+    const middle = (low + high) >> 1;
+    if (prompts[middle]!.getBoundingClientRect().top < top) {
+      found = middle;
+      low = middle + 1;
+    } else high = middle - 1;
+  }
+  const next = prompts[found + 1];
+  if (next && next.getBoundingClientRect().top < top + cover - 1) return;
+  if (found >= 0) return prompts[found];
+  const first = openedBefore && node.querySelector('[data-message]');
+  return first && first.getBoundingClientRect().top < top ? 'unloaded' : undefined;
+}
+type PromptBar = { line: string; unloaded: boolean; shown: boolean };
+/** The bar's next state for what `found` names; with nothing to show, it keeps what it showed as
+ * it fades. */
+const showPrompt =
+  (found: HTMLElement | 'unloaded' | undefined) =>
+  (bar: PromptBar): PromptBar => {
+    if (!found) return bar.shown ? { ...bar, shown: false } : bar;
+    const unloaded = found === 'unloaded';
+    const line = unloaded ? '' : (found.dataset.prompt ?? '');
+    return bar.shown && bar.unloaded === unloaded && bar.line === line
+      ? bar
+      : { line, unloaded, shown: true };
+  };
 export function Conversation({ state }: { state: SessionState }) {
   const { api, controller, connection, connectionIssue } = useConnection();
   // A running sub-agent's feed tells which call in this session runs it, and what it is doing.
@@ -167,8 +227,21 @@ export function Conversation({ state }: { state: SessionState }) {
   const following = useRef(true);
   // A returning reader's place, kept as the conversation lays out until they move themselves.
   const held = useRef<Position>(undefined);
+  // A read back to the prompt the bar stands for while it is not loaded, and the prompt it found,
+  // to go to once laid out: the reader moving themselves gives them up, as it does a held place.
+  const seek = useRef<object>(undefined);
+  const sought = useRef<number>(undefined);
+  // Leaving the conversation stops a read back, which would go on reading pages for nothing.
+  useEffect(
+    () => () => {
+      seek.current = undefined;
+    },
+    [],
+  );
   const release = () => {
     held.current = undefined;
+    seek.current = undefined;
+    sought.current = undefined;
   };
   const lastScroll = useRef({ top: 0, height: 0 });
   // Where the reader was as earlier history was asked for, to keep them there once it comes in.
@@ -290,7 +363,8 @@ export function Conversation({ state }: { state: SessionState }) {
     () => rewindableTurns(saved, { earlier, context }),
     [saved, earlier, context],
   );
-  const kinds = useMemo(() => messages.map(turnKind), [messages]);
+  const kinds = useMemo(() => messages.map((group) => turnKind(group[0]?.message)), [messages]);
+  const prompts = useMemo(() => messages.map((group) => promptOf(group[0]!.message)), [messages]);
   // Whether the agent says anything in saved history after each group.
   const savedSaysAfter = useMemo(() => {
     const after: boolean[] = [];
@@ -327,6 +401,90 @@ export function Conversation({ state }: { state: SessionState }) {
     !live.length &&
     !state.loading &&
     !changes.busy;
+  const [promptBar, setPromptBar] = useState<PromptBar>({
+    line: '',
+    unloaded: false,
+    shown: false,
+  });
+  const [seeking, setSeeking] = useState(false);
+  // The bar with the room it keeps below it, where a prompt brought back comes to rest.
+  const promptBarBox = useRef<HTMLDivElement>(null);
+  const stuckPrompt = useRef<HTMLElement | 'unloaded'>(undefined);
+  // The history loaded begins inside a turn that opened before it, so its prompt is not loaded.
+  const openedBefore = earlier && messages.length > 0 && kinds[0] !== 'input';
+  const opened = openedBefore ? messages[0]![0]!.message.turn_id : undefined;
+  const openedTurn = opened ? records?.get(opened) : undefined;
+  // A compaction run between turns opened with no prompt, so its time is not the prompt's.
+  const openedAt = openedTurn?.source === 'compaction' ? undefined : openedTurn?.started_at;
+  const unloadedPrompt = seeking
+    ? 'Loading earlier messages…'
+    : `${openedAt ? `Message ${formatWhen(new Date(openedAt))}` : 'Earlier message'}, not loaded yet`;
+  function placePromptBar(node: HTMLElement) {
+    stuckPrompt.current = promptAbove(node, promptBarBox.current?.offsetHeight ?? 0, openedBefore);
+    setPromptBar(showPrompt(stuckPrompt.current));
+  }
+  // A prompt comes to just under the bar, and the one before it takes the bar, so going on walks
+  // back prompt by prompt.
+  function goToPrompt(node: HTMLElement, target: HTMLElement) {
+    release();
+    following.current = false;
+    node.scrollTop +=
+      target.getBoundingClientRect().top -
+      node.getBoundingClientRect().top -
+      (promptBarBox.current?.offsetHeight ?? 0);
+    // Above the first there is none, and the bar hides, taking the focus with it.
+    if (
+      promptBarBox.current?.contains(document.activeElement) &&
+      node.querySelector('[data-prompt]') === target
+    )
+      node.focus({ preventScroll: true });
+  }
+  function goToSought(node: HTMLElement) {
+    const target =
+      sought.current !== undefined &&
+      node.querySelector<HTMLElement>(`[data-message="${sought.current}"]`);
+    if (target) goToPrompt(node, target);
+  }
+  // The prompt found by a read back may be laid out only after the read.
+  const placePromptBarOnResize = useEffectEvent((node: HTMLElement) => {
+    goToSought(node);
+    placePromptBar(node);
+  });
+  // Reads back a page at a time, the reader kept where they are, to the prompt of the turn the
+  // history loaded begins in, then goes to it.
+  async function readBackToPrompt(node: HTMLElement) {
+    const first = firstShown;
+    if (!controller || first === undefined) return;
+    const token = {};
+    seek.current = token;
+    if (!following.current) held.current = readPosition(node, false);
+    setSeeking(true);
+    let found: number | undefined;
+    try {
+      await controller.readEarlierUntil(state.id, ({ messages: loaded }) => {
+        found = undefined;
+        for (const message of loaded) {
+          if (message.position === undefined || message.position >= first) break;
+          if (turnKind(message) === 'input') found = message.position;
+        }
+        return seek.current !== token || found !== undefined;
+      });
+    } finally {
+      // A newer read keeps its own word on the bar.
+      if (seek.current === token || !seek.current) setSeeking(false);
+    }
+    if (seek.current !== token || found === undefined) return;
+    seek.current = undefined;
+    sought.current = found;
+    goToSought(node);
+  }
+  function jumpToPrompt() {
+    const node = scroller.current;
+    const target = stuckPrompt.current;
+    if (!node || !target) return;
+    if (target === 'unloaded') readBackToPrompt(node).catch(setFeedbackError);
+    else if (target.isConnected) goToPrompt(node, target);
+  }
   const run = (action: () => Promise<unknown>) => void changes.run(action);
   const resend = (turnId: string, message: string, images: ImageAttachment[], skill: string) =>
     run(async () => {
@@ -499,7 +657,8 @@ export function Conversation({ state }: { state: SessionState }) {
     const body = content.current;
     const footer = dock.current;
     const composer = footer?.querySelector<HTMLElement>('.composer-area');
-    if (!node || !body || !footer || !composer) return;
+    const bar = promptBarBox.current;
+    if (!node || !body || !footer || !composer || !bar) return;
     const observer = new ResizeObserver(() => {
       // Keep focused content above the sticky input and match its optional inner scrollbar.
       node.style.setProperty('--composer-height', `${footer.offsetHeight}px`);
@@ -512,11 +671,15 @@ export function Conversation({ state }: { state: SessionState }) {
       else if (held.current) placePosition(node, held.current);
       setShowLatest(!following.current);
       setContentBelow(node.scrollHeight - node.scrollTop - node.clientHeight > 1);
+      // Focused content scrolls in below the prompt bar rather than under it.
+      node.style.setProperty('--prompt-bar-height', `${bar.offsetHeight}px`);
+      placePromptBarOnResize(node);
     });
     observer.observe(body);
     observer.observe(footer);
     observer.observe(composer);
     observer.observe(node);
+    observer.observe(bar);
     return () => observer.disconnect();
   }, [key]);
   return (
@@ -551,9 +714,22 @@ export function Conversation({ state }: { state: SessionState }) {
                 prepending.current = { place: readPosition(node, false), height };
               setShowLatest(!following.current);
               setContentBelow(remaining > 1);
+              placePromptBar(node);
             }
           }}
         >
+          <div className="prompt-bar" data-shown={promptBar.shown}>
+            <div className="conversation-width" ref={promptBarBox}>
+              <button
+                type="button"
+                data-unloaded={promptBar.unloaded}
+                aria-label={promptBar.unloaded ? undefined : `Go to message: ${promptBar.line}`}
+                onClick={jumpToPrompt}
+              >
+                {promptBar.unloaded ? unloadedPrompt : promptBar.line || '\u00a0'}
+              </button>
+            </div>
+          </div>
           <div
             className="conversation-history"
             ref={content}
@@ -618,6 +794,7 @@ export function Conversation({ state }: { state: SessionState }) {
                     liveSaysAfter.any
                   }
                   hold={showLatest}
+                  prompt={prompts[position]}
                   {...turnActions(group, position)}
                 />
               ))}
@@ -637,6 +814,7 @@ export function Conversation({ state }: { state: SessionState }) {
                           toolResults={noToolResults}
                           showTurnContext={showTurnContext}
                           fromPerson={fromPerson}
+                          prompt={promptOf(group.message)}
                         />
                       ) : (
                         <article
@@ -1126,8 +1304,7 @@ function ThinkingRedacted() {
   return <p className="muted small">Thinking redacted.</p>;
 }
 /** What a saved group is to the actions under it: a message someone sent, or the agent's turn. */
-function turnKind(group: HistoryMessage[]) {
-  const message = group[0]?.message;
+function turnKind(message: ConversationMessage | undefined) {
   if (!message || message.compaction) return;
   if (message.role === 'assistant') return 'reply';
   // A schedule's fire carries the schedule's words, which Meka wrote but which are copied, edited,
@@ -1148,11 +1325,14 @@ function Message({
   fold = false,
   ended = true,
   hold = false,
+  prompt,
   actions,
   editor,
 }: {
   /** Where a saved message sits in the history, which marks it as a place to return to. */
   position?: number | undefined;
+  /** For a prompt, a person's message or a fire: the line the bar over the conversation shows. */
+  prompt?: string | undefined;
   /** For the agent's: whether it heads what the agent says, rather than carrying on from it. */
   headed?: boolean;
   messages: HistoryMessage[];
@@ -1283,6 +1463,7 @@ function Message({
     <article
       className={`message message-${message.role}${isUserInput ? ' message-input' : ''}${continues ? ' message-continued' : ''}`}
       data-message={position}
+      data-prompt={prompt}
     >
       {!continues && (
         <MessageHeader
@@ -1358,7 +1539,10 @@ function SentMessage({
   const images = 'images' in submission.body ? (submission.body.images ?? []) : [];
   const skill = 'options' in submission.body ? submission.body.options?.skill : undefined;
   return (
-    <article className="message message-user message-input">
+    <article
+      className="message message-user message-input"
+      data-prompt={promptLine(submission.body.message, images.length)}
+    >
       <MessageHeader
         author="You"
         createdAt={submission.createdAt}

@@ -3446,6 +3446,67 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
 .conversation-history :where(a, button, input, textarea, select, summary, [tabindex], [id]) {
   /* Keep focused history above the sticky composer without scrolling when its input is edited. */
   scroll-margin-bottom: var(--composer-height, 0px);
+  scroll-margin-top: var(--prompt-bar-height, 0px);
+}
+/* The prompt last scrolled above the view, as Meka's screen keeps it: its first line hung from
+   the top of the conversation, as wide as a message's card and dim until pointed at, since a click
+   brings the message back. The bar takes no room of its own, so it covers what scrolls under it. */
+.prompt-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  flex: none;
+  height: 0;
+  padding-right: var(--composer-scrollbar, 0px);
+  font-size: var(--conversation-font-size);
+  pointer-events: none;
+  /* A reminder over the conversation, not part of it, so a copy leaves it out. */
+  user-select: none;
+}
+/* The room a message brought back keeps below the bar. */
+.prompt-bar > .conversation-width {
+  padding-bottom: 10px;
+}
+.prompt-bar button {
+  display: block;
+  width: calc(100% + 2 * var(--user-message-inset));
+  margin-inline: calc(-1 * var(--user-message-inset));
+  padding: 7px calc(var(--user-message-inset) - var(--card-side));
+  overflow: hidden;
+  color: var(--muted);
+  line-height: 1.6;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: var(--message-bg);
+  border: 1px solid var(--message-border);
+  border-top: 0;
+  border-inline-width: var(--card-side);
+  border-radius: 0 0 calc(var(--radius-card) * var(--card-floats))
+    calc(var(--radius-card) * var(--card-floats));
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+  transition:
+    opacity 150ms ease,
+    visibility 150ms;
+}
+/* The scroller clips what is above its top. */
+.prompt-bar button:focus-visible {
+  outline-offset: -2px;
+  color: var(--text);
+}
+@media (hover: hover) {
+  .prompt-bar button:hover {
+    color: var(--text);
+  }
+}
+/* Says what is not loaded rather than quoting it. */
+.prompt-bar button[data-unloaded='true'] {
+  font-style: italic;
+}
+.prompt-bar:not([data-shown='true']) button {
+  visibility: hidden;
+  opacity: 0;
 }
 .conversation-width {
   --conversation-gutter: 34px;

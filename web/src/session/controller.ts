@@ -1554,6 +1554,21 @@ export class SessionController {
     });
     return entry.loadingEarlier;
   }
+  /**
+   * Reads earlier history a page at a time until `enough` says what is held will do, or none is
+   * left to read.
+   */
+  async readEarlierUntil(id: string, enough: (saved: SavedHistory) => boolean | Promise<boolean>) {
+    const entry = this.entries.get(id);
+    if (!entry) return;
+    for (let page = 0; page < 50; page++) {
+      const saved = entry.state.saved;
+      if (!saved || (await enough(saved)) || !saved.earlier) return;
+      await this.earlier(id);
+      // A read that failed, or found nothing, moves nothing.
+      if (entry.state.saved?.before === saved.before) return;
+    }
+  }
   private async readEarlier(entry: Entry, before: number) {
     try {
       const page = await this.api.get<Schema['HistoryResponse']>(
@@ -2085,20 +2100,15 @@ export class SessionController {
    * while too few are loaded and it may hold more.
    */
   async rewindLast(id: string, count: number) {
-    const entry = this.editable(id);
+    this.editable(id);
     // Read at most once: what the context holds does not move while earlier history is read.
     let context: ReadonlySet<number> | undefined;
     let turns = new Map<string, RewindableTurn>();
-    for (let page = 0; page < 50; page++) {
-      const saved = entry.state.saved;
-      const messages = saved?.messages ?? [];
+    await this.readEarlierUntil(id, async ({ messages, earlier }) => {
       if (!context && contextQuestion(messages)) context = await this.contextPositions(id);
-      turns = rewindableTurns(messages, { earlier: saved?.earlier ?? false, context });
-      if (turns.size >= count || !saved?.earlier || !mayHoldMore(messages, context)) break;
-      await this.earlier(id);
-      // A read that failed, or found nothing, moves nothing.
-      if (entry.state.saved?.before === saved.before) break;
-    }
+      turns = rewindableTurns(messages, { earlier, context });
+      return turns.size >= count || !mayHoldMore(messages, context);
+    });
     const turn = [...turns].find(([, turn]) => turn.turns === count)?.[0];
     if (!turn)
       throw new Error(

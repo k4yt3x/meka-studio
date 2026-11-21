@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Terminals copy what is selected with Ctrl+Shift+C, and find text with Ctrl+Shift+F.
 - In the desktop app, Ctrl+Shift+W closes a terminal's tab.
 - Settings → Appearance → Animation follows the system, or turns animations on or off.
+- A message scrolled above the view stays at the top of the conversation; click it to go back.
 
 ### Changed
 
