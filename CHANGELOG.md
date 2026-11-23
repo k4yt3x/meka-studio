@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- A background task's report no longer leaves a wide gap before the agent's reply.
+
 ## [0.45.1] - 2026-11-21
 
 ### Fixed

@@ -3590,10 +3590,8 @@ progress:where(:not([data-surface^='monaco'] *))::-moz-progress-bar {
   font-weight: 400;
   line-height: 1;
 }
-.message-user {
-  margin-bottom: 10px;
-}
 .message-input {
+  margin-bottom: 10px;
   background: var(--message-bg);
   border: 1px solid var(--message-border);
   border-inline-width: var(--card-side);
@@ -3732,6 +3730,11 @@ summary.compaction-rule:hover::after {
   margin: 10px 0;
   border-left: 2px solid var(--border);
   padding-left: 13px;
+}
+/* At a message's end, as when Meka's report opens a turn, the message's own padding sets it apart
+   from the next. */
+.message > .injected:last-child {
+  margin-bottom: 0;
 }
 .thinking > summary,
 .scheduled-fire:not([open]) > summary {
