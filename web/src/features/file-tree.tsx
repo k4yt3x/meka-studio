@@ -58,6 +58,8 @@ export function FileTree({
   marks,
   fontSize,
   onZoom,
+  startTop,
+  onScrolled,
   root,
   rootName,
   selected,
@@ -93,6 +95,9 @@ export function FileTree({
   fontSize: number;
   /** Asks for its text a step larger or smaller, or `0` for the saved size. */
   onZoom: (step: -1 | 0 | 1) => void;
+  /** Where it is scrolled to as it first shows, and where it is scrolled to since. */
+  startTop: number;
+  onScrolled: (top: number) => void;
   root: string;
   rootName: string;
   selected: ReadonlySet<string>;
@@ -137,16 +142,18 @@ export function FileTree({
   // A tree is pointed at more than typed in: its keys work while the pointer is over it.
   useTextZoom(scroller, onZoom, { whileOver: true });
   const elements = useRef(new Map<string, HTMLElement>());
-  const [view, setView] = useState({ top: 0, height: 600 });
+  const [view, setView] = useState({ top: startTop, height: 600 });
+  const [shownAt] = useState(startTop);
   useLayoutEffect(() => {
     const element = scroller.current;
     if (!element) return;
+    element.scrollTop = shownAt;
     const measure = () => setView({ top: element.scrollTop, height: element.clientHeight });
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(element);
     return () => observer.disconnect();
-  }, []);
+  }, [shownAt]);
   const entries = rows.filter((row): row is EntryRow => row.kind === 'entry');
   const current =
     focused && entries.some((row) => row.path === focused) ? focused : entries[0]?.path;
@@ -334,12 +341,11 @@ export function FileTree({
           aria-label={`Files in ${rootName}`}
           aria-multiselectable="true"
           style={measures}
-          onScroll={(event) =>
-            setView({
-              top: event.currentTarget.scrollTop,
-              height: event.currentTarget.clientHeight,
-            })
-          }
+          onScroll={(event) => {
+            const top = event.currentTarget.scrollTop;
+            setView({ top, height: event.currentTarget.clientHeight });
+            onScrolled(top);
+          }}
           onKeyDown={onKeyDown}
           onClick={(event) => {
             // A click beside the entries lets go of what is chosen.

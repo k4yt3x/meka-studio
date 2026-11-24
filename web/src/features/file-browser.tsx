@@ -141,6 +141,18 @@ function sharedUploads(runtime: ReturnType<typeof useRuntime>, landed: () => voi
 const lastFolders = new Map<string, string>();
 /** The folders open in the tree for each place. */
 const openFolders = new Map<string, ReadonlySet<string>>();
+/** Whether each place shows hidden files. */
+const hiddenShown = new Map<string, boolean>();
+/**
+ * How each place's tree was left, for while the page lasts: scrolled, and what was chosen and
+ * focused in it.
+ */
+const treeViews = new Map<string, TreeView>();
+interface TreeView {
+  top: number;
+  chosen: Chosen;
+  focused: string | undefined;
+}
 /** The request from elsewhere each place last followed, so showing Files again does not repeat it. */
 const followedTargets = new Map<string, number>();
 const forgetting = new WeakSet<ReturnType<typeof useRuntime>>();
@@ -151,6 +163,8 @@ function forgetOnSignOut(runtime: ReturnType<typeof useRuntime>) {
   runtime.onSignOut(() => {
     lastFolders.clear();
     openFolders.clear();
+    hiddenShown.clear();
+    treeViews.clear();
     followedTargets.clear();
   });
 }
@@ -202,7 +216,16 @@ export function FileBrowser({
   const [root, setRoot] = useState(
     () => fresh?.path ?? lastFolders.get(place) ?? saved?.folder ?? start,
   );
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHiddenState] = useState(() => {
+    const shown = hiddenShown.get(place) ?? saved?.hidden ?? false;
+    hiddenShown.set(place, shown);
+    return shown;
+  });
+  function setHidden(next: boolean) {
+    setHiddenState(next);
+    hiddenShown.set(place, next);
+    if (keep) runtime.storage.saveWorkspace(place, { hidden: next || undefined });
+  }
   // A size set with Ctrl and the wheel or keys lasts until Files closes; Settings keeps the size.
   const { filesFontSize } = useSettings();
   const [zoom, setZoom] = useState<number>();
@@ -228,12 +251,19 @@ export function FileBrowser({
       return next;
     });
   }
-  // What such a request asks to be shown is chosen, and scrolled to once it shows.
+  // What such a request asks to be shown is chosen, and scrolled to once it shows; else the tree is
+  // as it was left.
   const asked = fresh && (fresh.open ? join(fresh.path, fresh.open) : fresh.path);
+  const [left] = useState(() => (asked ? undefined : treeViews.get(place)));
   const [chosen, setChosen] = useState<Chosen>(() =>
-    asked ? { paths: new Set([asked]), anchor: asked, held: false } : nothing,
+    asked ? { paths: new Set([asked]), anchor: asked, held: false } : (left?.chosen ?? nothing),
   );
-  const [focused, setFocused] = useState(asked);
+  const [focused, setFocused] = useState(asked ?? left?.focused);
+  const [startTop, setStartTop] = useState(left?.top ?? 0);
+  const scrolledTo = useRef(startTop);
+  useEffect(() => {
+    treeViews.set(place, { top: scrolledTo.current, chosen, focused });
+  }, [place, chosen, focused]);
   const [revealing, setRevealing] = useState<{ path: string } | undefined>(() =>
     asked ? { path: asked } : undefined,
   );
@@ -383,6 +413,8 @@ export function FileBrowser({
     setChosen(nothing);
     setCreating(undefined);
     setRenaming(undefined);
+    setStartTop(0);
+    scrolledTo.current = 0;
   }
   // A request from elsewhere, such as a tool call's link, shows its folder, and its file in it.
   const [seen, setSeen] = useState(target?.nonce);
@@ -663,6 +695,11 @@ export function FileBrowser({
           marks={marks}
           fontSize={zoom ?? filesFontSize}
           onZoom={zoomBy}
+          startTop={startTop}
+          onScrolled={(top) => {
+            scrolledTo.current = top;
+            treeViews.set(place, { top, chosen, focused });
+          }}
           root={folder}
           rootName={basename(folder) || folder}
           selected={selectedPaths}

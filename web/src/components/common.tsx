@@ -44,8 +44,11 @@ export function ErrorNotice({
     </div>
   ) : null;
 }
-/** Text that folds to its first lines when it runs longer, with a button for the rest. */
-export function FoldedText({ text }: { text: string }) {
+/**
+ * Text that folds to its first lines when it runs longer, with a button for the rest; `className`
+ * styles the text, folded or open.
+ */
+export function FoldedText({ text, className }: { text: string; className?: string }) {
   const body = useRef<HTMLParagraphElement>(null);
   const [open, setOpen] = useState(false);
   const [long, setLong] = useState(false);
@@ -66,7 +69,10 @@ export function FoldedText({ text }: { text: string }) {
   }, [text, open]);
   return (
     <>
-      <p ref={body} className={open ? undefined : 'folded-text'}>
+      <p
+        ref={body}
+        className={[className, !open && 'folded-text'].filter(Boolean).join(' ') || undefined}
+      >
         {text}
       </p>
       {long && (

@@ -52,7 +52,7 @@ import { useLocation, useParams } from '@tanstack/react-router';
 import { Button } from '../components/ui/button';
 import { Dialog } from '../components/ui/dialog';
 import { SwitchField } from '../components/ui/switch';
-import { Empty, ErrorNotice, Field, Json, Loading } from '../components/common';
+import { Empty, ErrorNotice, Field, FoldedText, Json, Loading } from '../components/common';
 import { Conversation } from './conversation';
 import { NewConversation } from './new-conversation';
 import { newConversationFolder, newConversationPlace } from './use-new-conversation';
@@ -1318,6 +1318,8 @@ function SessionDetails({ session, tab }: { session: Schema['SessionResponse']; 
     tab === 'tasks',
     5000,
   );
+  const [allTasks, setAllTasks] = useState(false);
+  const shownTasks = tasks.data?.tasks.filter((task) => allTasks || task.status === 'running');
   return (
     <div className="stack">
       {tab === 'context' && (
@@ -1332,15 +1334,33 @@ function SessionDetails({ session, tab }: { session: Schema['SessionResponse']; 
       )}
       {tab === 'tasks' && (
         <>
+          <div className="detail-tabs" role="group" aria-label="Tasks shown">
+            <Button
+              variant={allTasks ? 'ghost' : 'secondary'}
+              size="sm"
+              aria-pressed={!allTasks}
+              onClick={() => setAllTasks(false)}
+            >
+              Running
+            </Button>
+            <Button
+              variant={allTasks ? 'secondary' : 'ghost'}
+              size="sm"
+              aria-pressed={allTasks}
+              onClick={() => setAllTasks(true)}
+            >
+              All
+            </Button>
+          </div>
           <ErrorNotice error={tasks.error ?? action.error} />
-          {tasks.data?.tasks.map((task) => (
-            <article className="panel" key={task.id}>
-              <h3>
-                {task.label}
+          {shownTasks?.map((task) => (
+            <article className="panel task-card" key={task.id}>
+              <header className="card-heading">
+                <span className="muted">{task.tool}</span>
                 <span className="badge">{task.status}</span>
-              </h3>
-              <p className="muted">{task.tool}</p>
-              {task.outcome && <pre className="plain-text">{task.outcome}</pre>}
+              </header>
+              <FoldedText text={task.label} className="plain-text task-label" />
+              {task.outcome && <FoldedText text={task.outcome} className="plain-text" />}
               <details>
                 <summary>Task details and delivery</summary>
                 <Json value={task} />
@@ -1360,7 +1380,9 @@ function SessionDetails({ session, tab }: { session: Schema['SessionResponse']; 
               </Button>
             </article>
           ))}
-          {tasks.data?.tasks.length === 0 && <Empty title="No background tasks" />}
+          {shownTasks?.length === 0 && (
+            <Empty title={allTasks ? 'No background tasks' : 'No running tasks'} />
+          )}
         </>
       )}
       {tab === 'schedules' && <SchedulesPage sessionId={session.id} />}

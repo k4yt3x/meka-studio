@@ -1578,6 +1578,13 @@ pre.bounded {
 .schedule-card > .plain-text {
   margin: 18px 0;
 }
+/* The tool's name and a fold's button match the card's text, which `.panel > p` sizes. */
+.task-card > :is(header, .folded-text-toggle) {
+  font-size: 0.85rem;
+}
+.task-label {
+  font-weight: 650;
+}
 .session-schedules > .empty {
   padding: 64px 12px 8px;
 }

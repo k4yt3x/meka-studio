@@ -287,9 +287,16 @@ it('keeps what each place has open, checked, the most recent places only', () =>
   expect(store.workspace('s1')?.active).toBeUndefined();
   store.saveWorkspace('s2', { tabs: [] });
   expect(store.workspace('s2')).toBeUndefined();
+  // Hidden files shown are kept with nothing else open, until they are hidden again.
+  store.saveWorkspace('s3', { hidden: true });
+  expect(store.workspace('s3')).toEqual({ tabs: [], open: [], hidden: true });
+  store.saveWorkspace('s3', { hidden: undefined });
+  expect(store.workspace('s3')).toBeUndefined();
   local.setItem(
     'meka-studio:v1:workspaces',
-    JSON.stringify({ odd: { tabs: ['/b.ts', 4], active: '/elsewhere', open: 'no', at: 1 } }),
+    JSON.stringify({
+      odd: { tabs: ['/b.ts', 4], active: '/elsewhere', open: 'no', hidden: 'yes', at: 1 },
+    }),
   );
   expect(store.workspace('odd')).toEqual({ tabs: ['/b.ts'], open: [] });
   for (let index = 0; index < 60; index++) store.saveWorkspace(`p${index}`, { tabs: ['/c.ts'] });

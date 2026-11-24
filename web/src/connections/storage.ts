@@ -178,6 +178,8 @@ export interface SavedWorkspace {
   /** The folder Files showed, and the folders open in its tree. */
   folder?: string | undefined;
   open: readonly string[];
+  /** Whether Files shows hidden files; absent when it does not. */
+  hidden?: true | undefined;
   /** The side panel it shows, `null` for none; absent until one is opened or closed in it. */
   panel?: Panel | null | undefined;
 }
@@ -205,6 +207,7 @@ function normalizeWorkspace(value: unknown): SavedWorkspace | undefined {
     ...(typeof preview === 'string' && tabs.includes(preview) ? { preview } : {}),
     ...(typeof folder === 'string' && folder ? { folder } : {}),
     open: strings(value.open),
+    ...(value.hidden === true ? { hidden: true } : {}),
     ...(panel !== undefined ? { panel } : {}),
   };
 }
@@ -664,7 +667,11 @@ export class BrowserStorage {
     if (!this.keeping) return;
     const next = { tabs: [], open: [], ...this.workspace(place), ...change };
     const empty =
-      !next.tabs.length && !next.open.length && !next.folder && next.panel === undefined;
+      !next.tabs.length &&
+      !next.open.length &&
+      !next.folder &&
+      !next.hidden &&
+      next.panel === undefined;
     const others = recent(parse(this.read(WORKSPACES))).filter(([key]) => key !== place);
     const kept = empty ? others : [[place, { ...next, at: Date.now() }] as const, ...others];
     this.write(WORKSPACES, JSON.stringify(Object.fromEntries(kept.slice(0, WORKSPACE_LIMIT))));
