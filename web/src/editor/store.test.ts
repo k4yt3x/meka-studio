@@ -266,6 +266,29 @@ describe('editor store', () => {
     expect(store.changesOf('/v/a.ts')).toBeUndefined();
   });
 
+  it('shows a Markdown file rendered until it opens at lines or beside its last commit, through renames', () => {
+    const { store } = setup({ '/w/a.md': { text: '# a', version: 'v0' } });
+    store.open('s', '/w/a.md');
+    store.showRendered('/w/a.md', true);
+    // Opened again, as from Files, it stays rendered, under the name it is moved to.
+    store.open('s', '/w/a.md');
+    store.moved('/w', '/v');
+    expect(store.renders('/v/a.md')).toBe(true);
+    expect(store.renders('/w/a.md')).toBe(false);
+    store.open('s', '/v/a.md', { lines: { line: 2 } });
+    expect(store.renders('/v/a.md')).toBe(false);
+    store.showRendered('/v/a.md', true);
+    store.showChanges('/v/a.md', '/v');
+    expect(store.renders('/v/a.md')).toBe(false);
+    store.showRendered('/v/a.md', true);
+    expect(store.changesOf('/v/a.md')).toBeUndefined();
+    store.openChanges('s', '/v/a.md', '/v');
+    expect(store.renders('/v/a.md')).toBe(false);
+    store.showRendered('/v/a.md', true);
+    store.close('s', ['/v/a.md']);
+    expect(store.renders('/v/a.md')).toBe(false);
+  });
+
   it('opens a file to look at as the preview tab, which the next takes the place of until kept', async () => {
     const disk: Disk = {};
     for (const name of ['a', 'b', 'c', 'd', 'e'])

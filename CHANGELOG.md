@@ -12,6 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tasks lists the running tasks, and All lists finished ones too.
 - Tasks folds a long task's description and result to their first lines, with Show more.
 - Files remembers showing hidden files, its scroll and its selection for each session.
+- A Markdown file shown with Preview stays rendered when you switch away and back.
+- Preview takes Editor font size, and Ctrl with the wheel or zoom keys over it sizes its text.
 
 ### Fixed
 

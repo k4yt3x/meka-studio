@@ -1926,6 +1926,10 @@ pre.bounded {
   overflow: auto;
   padding: 20px 28px 48px;
 }
+/* At the editor's size, which the preview sets. */
+.code-preview > .markdown {
+  font-size: inherit;
+}
 .code-status {
   flex-shrink: 0;
   display: flex;
@@ -5527,22 +5531,23 @@ body:has(.panel-resize-handle[data-resizing='true']) {
   cursor: col-resize;
 }
 
-/* Scale conversation typography together; application controls keep their own sizes. */
-.conversation-history .markdown h1 {
+/* Scale the typography of the conversation, and of a Markdown file shown rendered, together;
+   application controls keep their own sizes. */
+:is(.conversation-history, .code-preview) .markdown h1 {
   font-size: 1.6em;
 }
-.conversation-history .markdown h2 {
+:is(.conversation-history, .code-preview) .markdown h2 {
   font-size: 1.33em;
 }
-.conversation-history .markdown h3 {
+:is(.conversation-history, .code-preview) .markdown h3 {
   font-size: 1.14em;
 }
-.conversation-history .markdown h4,
-.conversation-history .markdown h5,
-.conversation-history .markdown h6 {
+:is(.conversation-history, .code-preview) .markdown h4,
+:is(.conversation-history, .code-preview) .markdown h5,
+:is(.conversation-history, .code-preview) .markdown h6 {
   font-size: 1.03em;
 }
-.conversation-history .markdown table {
+:is(.conversation-history, .code-preview) .markdown table {
   font-size: 0.93em;
 }
 .conversation-history .tool-card,
@@ -5559,14 +5564,14 @@ body:has(.panel-resize-handle[data-resizing='true']) {
 .conversation-history .plain-text,
 .conversation-history .edit-lines,
 .conversation-history .tool-output,
-.conversation-history .code-block > pre > code {
+:is(.conversation-history, .code-preview) .code-block > pre > code {
   font-size: 0.9em;
 }
 .conversation-history .tool-output > .plain-text {
   font-size: inherit;
 }
-.conversation-history .markdown .alert-heading,
-.conversation-history .markdown .katex-error {
+:is(.conversation-history, .code-preview) .markdown .alert-heading,
+:is(.conversation-history, .code-preview) .markdown .katex-error {
   font-size: 1em;
 }
 

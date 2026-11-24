@@ -36,6 +36,7 @@ import { copyText } from '../components/clipboard';
 import { useMediaQuery } from '../components/media-query';
 import { useOverlayPadding } from '../components/visual-viewport';
 import { useDarkTheme } from '../components/theme';
+import { useTextZoom } from '../components/text-zoom';
 import { appleKeyboard, shortcutHint } from '../components/shortcut-keys';
 import { useShortcut } from '../components/use-shortcut';
 import { focusMessage, mentionPath, useWorkspace } from '../components/workspace';
@@ -747,6 +748,31 @@ function TerminalBody({
   );
 }
 
+/**
+ * A Markdown file shown rendered, its text at the editor's size, which Ctrl with the wheel or the
+ * zoom keys over it changes as they do in the editor.
+ */
+function MarkdownPreview({
+  text,
+  base,
+  fontSize,
+  onZoom,
+}: {
+  text: string;
+  /** The folder its links and images are relative to. */
+  base: string;
+  fontSize: number;
+  onZoom: (step: -1 | 0 | 1) => void;
+}) {
+  const host = useRef<HTMLDivElement>(null);
+  useTextZoom(host, onZoom, { whileOver: true });
+  return (
+    <div ref={host} className="code-preview" style={{ fontSize }}>
+      <Markdown text={text} base={base} />
+    </div>
+  );
+}
+
 /** The file shown: its editor, or what it is, with what can be done with it. */
 function EditorBody({
   store,
@@ -777,7 +803,7 @@ function EditorBody({
   const [indentation, setIndentation] = useState<string>();
   const [comparing, setComparing] = useState(false);
   const markdown = /\.(md|markdown|mdx)$/i.test(file.name);
-  const [previewing, setPreviewing] = useState(false);
+  const previewing = markdown && store.renders(file.path);
   const readOnly = file.version === null && file.truncated;
   const text = file.kind === 'text' && file.state === 'ready';
   const conflict = file.conflict;
@@ -806,7 +832,11 @@ function EditorBody({
       </span>
       {tools}
       {text && markdown && (
-        <Button size="sm" variant="ghost" onClick={() => setPreviewing(!previewing)}>
+        <Button
+          size="sm"
+          variant="ghost"
+          onClick={() => store.showRendered(file.path, !previewing)}
+        >
           {previewing ? <Code size={14} /> : <BookOpen size={14} />}
           {previewing ? 'Edit' : 'Preview'}
         </Button>
@@ -949,12 +979,12 @@ function EditorBody({
       )}
       <ErrorNotice error={file.saveError} />
       {previewing ? (
-        <div className="code-preview">
-          <Markdown
-            text={store.documents?.text(file.path, '\n')?.text ?? file.text}
-            base={parent(file.path)}
-          />
-        </div>
+        <MarkdownPreview
+          text={store.documents?.text(file.path, '\n')?.text ?? file.text}
+          base={parent(file.path)}
+          fontSize={fontSize}
+          onZoom={onZoom}
+        />
       ) : showCompare ? (
         <CompareSurface {...compare} original={conflict.text} />
       ) : changesIn !== undefined ? (

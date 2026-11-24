@@ -219,6 +219,8 @@ export class EditorStore {
    * repository each is in.
    */
   private changes = new Map<string, string>();
+  /** The Markdown files shown rendered, rather than to edit or beside the last commit. */
+  private rendered = new Set<string>();
   documents: Documents | undefined;
 
   constructor(
@@ -440,12 +442,14 @@ export class EditorStore {
   }
 
   /**
-   * Opens `path` in `place`, after the tab shown or as its preview tab, as `how` says, and shows it
-   * to edit, at the lines it gives, rather than beside the last commit.
+   * Opens `path` in `place`, after the tab shown or as its preview tab, as `how` says, rather than
+   * beside the last commit; at the lines it gives, to edit, even a file shown rendered.
    */
   open(place: string, path: string, how: Opening = {}) {
-    if (how.lines) this.lines.set(path, how.lines);
-    else this.lines.delete(path);
+    if (how.lines) {
+      this.lines.set(path, how.lines);
+      this.rendered.delete(path);
+    } else this.lines.delete(path);
     this.changes.delete(path);
     this.insert(place, path, how.preview);
     if (this.add(path) && this.files.get(path)?.state === 'loading') void this.load(path);
@@ -458,8 +462,7 @@ export class EditorStore {
    */
   openChanges(place: string, path: string, repo: string, how: Opening = {}) {
     this.open(place, path, how);
-    this.changes.set(path, repo);
-    this.emit();
+    this.showChanges(path, repo);
   }
 
   /** The repository whose last commit the file `path` shows beside, if it does. */
@@ -473,7 +476,24 @@ export class EditorStore {
    */
   showChanges(path: string, repo: string | undefined) {
     if (repo === undefined) this.changes.delete(path);
-    else this.changes.set(path, repo);
+    else {
+      this.changes.set(path, repo);
+      this.rendered.delete(path);
+    }
+    this.emit();
+  }
+
+  /** Whether the Markdown file `path` shows rendered. */
+  renders(path: string): boolean {
+    return this.rendered.has(path);
+  }
+
+  /** Shows the Markdown file `path` rendered, or with `rendered` false, to edit. */
+  showRendered(path: string, rendered: boolean) {
+    if (rendered) {
+      this.rendered.add(path);
+      this.changes.delete(path);
+    } else this.rendered.delete(path);
     this.emit();
   }
 
@@ -562,6 +582,7 @@ export class EditorStore {
       const repo = this.changes.get(path);
       this.changes.delete(path);
       if (repo !== undefined) this.changes.set(now, repo);
+      if (this.rendered.delete(path)) this.rendered.add(now);
     }
     for (const [place, tabs] of this.places)
       this.places.set(place, {
@@ -668,6 +689,7 @@ export class EditorStore {
       this.unread.delete(key);
       this.lines.delete(key);
       this.changes.delete(key);
+      this.rendered.delete(key);
       this.documents?.drop(key);
     }
   }
@@ -929,6 +951,7 @@ export class EditorStore {
     this.keeping.clear();
     this.unread.clear();
     this.changes.clear();
+    this.rendered.clear();
     this.emit();
   }
 }
