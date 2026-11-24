@@ -3936,14 +3936,15 @@ summary.compaction-rule:hover::after {
   border-top: 1px solid var(--border);
   background: var(--bg);
 }
+/* One column as wide as the widest line, or the box, so every line's fill reaches as far. */
 .edit-lines {
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr);
   margin: 0;
   padding: 6px 0;
   line-height: 1.5;
 }
 .edit-lines > * {
-  display: block;
-  min-width: max-content;
   padding-right: 13px;
   text-decoration: none;
   white-space: pre;

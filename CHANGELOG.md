@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.1] - 2026-11-24
+
+### Fixed
+
+- Scrolling a long change sideways no longer leaves its lines' shading ragged at the right.
+
 ## [0.46.0] - 2026-11-24
 
 ### Added
@@ -866,7 +872,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Light and dark themes, narrow layouts, and collapsible, resizable session panels.
 - Hosting at the root or a subpath, with GitHub Pages deployment on version tags.
 
-[Unreleased]: https://github.com/k4yt3x/meka-studio/compare/0.46.0...HEAD
+[Unreleased]: https://github.com/k4yt3x/meka-studio/compare/0.46.1...HEAD
+[0.46.1]: https://github.com/k4yt3x/meka-studio/compare/0.46.0...0.46.1
 [0.46.0]: https://github.com/k4yt3x/meka-studio/compare/0.45.1...0.46.0
 [0.45.1]: https://github.com/k4yt3x/meka-studio/compare/0.45.0...0.45.1
 [0.45.0]: https://github.com/k4yt3x/meka-studio/compare/0.44.0...0.45.0
