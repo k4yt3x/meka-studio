@@ -1,5 +1,5 @@
-//! Terminals' endpoints. Signing in is all a terminal needs: whoever is signed in can run
-//! anything through Meka's agent already.
+//! Terminals' endpoints, and the shell they run. Signing in is all a terminal needs: whoever is
+//! signed in can run anything through Meka's agent already.
 //!
 //! The WebSocket carries the shell's output as binary messages, and the browser's input and
 //! resizes as JSON text messages: `{"type":"input","data":"…"}` and
@@ -19,12 +19,13 @@ use axum::{
 };
 use bytes::Bytes;
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::{
     app::{App, is_same_origin},
     auth::Signed,
+    config::ShellCommand,
     error::{ApiError, ApiResult},
     terminal::{Attachment, Output, TerminalView},
 };
@@ -40,6 +41,16 @@ pub(crate) struct NewTerminal {
     pub(crate) cols: u16,
     #[serde(default = "default_rows")]
     pub(crate) rows: u16,
+}
+
+/// The shell new terminals run.
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct ShellSetting {
+    /// The shell the user chose, if they did.
+    pub(crate) shell: Option<ShellCommand>,
+    /// What runs unless they choose: the config's shell, else their login shell, or PowerShell on
+    /// Windows.
+    pub(crate) default: ShellCommand,
 }
 
 /// The largest message a terminal's connection takes: a long paste, not a file.
@@ -110,7 +121,7 @@ pub(crate) async fn terminals(
 )]
 pub(crate) async fn open_terminal(
     State(app): State<App>,
-    _signed: Signed,
+    signed: Signed,
     Json(body): Json<NewTerminal>,
 ) -> ApiResult<Json<TerminalView>> {
     if !app.terminals.is_enabled() {
@@ -127,11 +138,86 @@ pub(crate) async fn open_terminal(
         .session
         .map(|session| session.trim().to_owned())
         .filter(|session| !session.is_empty());
+    let shell = match app.store.shell(signed.user.id).await? {
+        Some(shell) => shell,
+        None => app.terminals.default_shell(),
+    };
     let view = app
         .terminals
-        .open(&cwd, body.cols, body.rows, session)
+        .open(&shell, &cwd, body.cols, body.rows, session)
         .map_err(|error| ApiError::bad_request(format!("{error:#}")))?;
     Ok(Json(view))
+}
+
+/// The shell the user chose, and what runs unless they choose.
+async fn shell_setting(app: &App, user: i64) -> ApiResult<ShellSetting> {
+    Ok(ShellSetting {
+        shell: app.store.shell(user).await?,
+        default: app.terminals.default_shell(),
+    })
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/shell",
+    tag = "terminal",
+    responses(
+        (status = 200, body = ShellSetting),
+        (status = 404, description = "Terminals are turned off", body = crate::error::Problem)
+    )
+)]
+pub(crate) async fn shell(State(app): State<App>, signed: Signed) -> ApiResult<Json<ShellSetting>> {
+    if !app.terminals.is_enabled() {
+        return Err(disabled());
+    }
+    Ok(Json(shell_setting(&app, signed.user.id).await?))
+}
+
+/// Chooses the shell new terminals run; those open keep theirs.
+#[utoipa::path(
+    put,
+    path = "/api/shell",
+    tag = "terminal",
+    request_body = ShellCommand,
+    responses(
+        (status = 200, body = ShellSetting),
+        (status = 400, description = "The program is neither a name nor a full path", body = crate::error::Problem),
+        (status = 404, description = "Terminals are turned off", body = crate::error::Problem)
+    )
+)]
+pub(crate) async fn choose_shell(
+    State(app): State<App>,
+    signed: Signed,
+    Json(body): Json<ShellCommand>,
+) -> ApiResult<Json<ShellSetting>> {
+    if !app.terminals.is_enabled() {
+        return Err(disabled());
+    }
+    body.check()
+        .map_err(|error| ApiError::bad_request(format!("{error:#}")))?;
+    app.store.set_shell(signed.user.id, &body).await?;
+    Ok(Json(shell_setting(&app, signed.user.id).await?))
+}
+
+/// Goes back to the default shell for new terminals.
+#[utoipa::path(
+    delete,
+    path = "/api/shell",
+    tag = "terminal",
+    responses(
+        (status = 200, body = ShellSetting),
+        (status = 404, description = "Terminals are turned off", body = crate::error::Problem)
+    )
+)]
+pub(crate) async fn clear_shell(
+    State(app): State<App>,
+    signed: Signed,
+) -> ApiResult<Json<ShellSetting>> {
+    if !app.terminals.is_enabled() {
+        return Err(disabled());
+    }
+    app.store.clear_shell(signed.user.id).await?;
+    Ok(Json(shell_setting(&app, signed.user.id).await?))
 }
 
 #[utoipa::path(

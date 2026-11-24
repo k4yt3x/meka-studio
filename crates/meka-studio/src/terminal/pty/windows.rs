@@ -9,7 +9,7 @@
 
 use std::{
     io::{Read, Write},
-    path::{Path, PathBuf},
+    path::Path,
     sync::{Arc, Mutex, PoisonError},
 };
 
@@ -44,8 +44,14 @@ const CURSOR_QUERY: &[u8] = b"\x1b[6n";
 /// Where a new screen's cursor is.
 const CURSOR_HOME: &[u8] = b"\x1b[1;1R";
 
-/// Starts `shell` in `cwd`, on a pseudo console `cols` by `rows`.
-pub(crate) fn start(shell: &Path, cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<Started> {
+/// Starts `shell` with `args` in `cwd`, on a pseudo console `cols` by `rows`.
+pub(crate) fn start(
+    shell: &Path,
+    args: &[String],
+    cwd: &Path,
+    cols: u16,
+    rows: u16,
+) -> anyhow::Result<Started> {
     let pair = portable_pty::native_pty_system().openpty(PtySize {
         rows,
         cols,
@@ -53,6 +59,7 @@ pub(crate) fn start(shell: &Path, cwd: &Path, cols: u16, rows: u16) -> anyhow::R
         pixel_height: 0,
     })?;
     let mut command = CommandBuilder::new(shell);
+    command.args(args);
     command.cwd(cwd);
     command.env("TERM", "xterm-256color");
     command.env("COLORTERM", "truecolor");
@@ -184,6 +191,6 @@ impl Process {
 }
 
 /// The shell a terminal runs on Windows: PowerShell, as Meka uses.
-pub(crate) fn default_shell() -> PathBuf {
-    PathBuf::from("powershell.exe")
+pub(crate) fn default_shell() -> String {
+    "powershell.exe".to_owned()
 }

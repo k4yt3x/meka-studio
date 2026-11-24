@@ -1,10 +1,6 @@
 //! Pseudo-terminals on Unix.
 
-use std::{
-    ffi::OsStr,
-    os::unix::ffi::OsStrExt,
-    path::{Path, PathBuf},
-};
+use std::path::Path;
 
 use rustix::process::{Pid, Signal};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -23,21 +19,30 @@ pub(crate) struct Shell(tokio::process::Child);
 /// The shell's process group, which is its session's and has its id.
 pub(crate) struct Process(Option<Pid>);
 
-/// Starts `shell` as a login shell in `cwd`, on a pseudo-terminal `cols` by `rows`.
-pub(crate) fn start(shell: &Path, cwd: &Path, cols: u16, rows: u16) -> anyhow::Result<Started> {
-    let (pty, pts) = pty_process::open()?;
-    pty.resize(pty_process::Size::new(rows, cols))?;
+/// Starts `shell` as a login shell with `args` in `cwd`, on a pseudo-terminal `cols` by `rows`.
+pub(crate) fn start(
+    shell: &Path,
+    args: &[String],
+    cwd: &Path,
+    cols: u16,
+    rows: u16,
+) -> anyhow::Result<Started> {
+    let (pty, pts) = pty_process::open().map_err(plain)?;
+    pty.resize(pty_process::Size::new(rows, cols))
+        .map_err(plain)?;
     let name = shell
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
         .unwrap_or_else(|| "sh".to_owned());
     let child = pty_process::Command::new(shell)
         .arg0(format!("-{name}"))
+        .args(args)
         .current_dir(cwd)
         .env("TERM", "xterm-256color")
         .env("COLORTERM", "truecolor")
         .kill_on_drop(true)
-        .spawn(pts)?;
+        .spawn(pts)
+        .map_err(plain)?;
     let pid = child
         .id()
         .and_then(|pid| i32::try_from(pid).ok())
@@ -49,6 +54,12 @@ pub(crate) fn start(shell: &Path, cwd: &Path, cols: u16, rows: u16) -> anyhow::R
         shell: Shell(child),
         process: Process(pid),
     })
+}
+
+/// `error` as its message alone: pty-process's errors repeat their cause in their message, so
+/// with the cause they would say it twice.
+fn plain(error: pty_process::Error) -> anyhow::Error {
+    anyhow::anyhow!("{error}")
 }
 
 impl Output {
@@ -67,7 +78,9 @@ impl Input {
 
     /// Resizes the terminal.
     pub(crate) fn resize(&self, cols: u16, rows: u16) -> anyhow::Result<()> {
-        Ok(self.0.resize(pty_process::Size::new(rows, cols))?)
+        self.0
+            .resize(pty_process::Size::new(rows, cols))
+            .map_err(plain)
     }
 
     /// Closes the pseudo-terminal: what still holds the other end reads its end of input and is
@@ -109,20 +122,20 @@ impl Process {
 }
 
 /// The user's login shell, from the user database, else `$SHELL`, else `/bin/sh`.
-pub(crate) fn default_shell() -> PathBuf {
+pub(crate) fn default_shell() -> String {
     database_shell()
-        .filter(|shell| shell.is_absolute() && shell.exists())
+        .filter(|shell| Path::new(shell).is_absolute() && Path::new(shell).exists())
         .or_else(|| {
-            std::env::var_os("SHELL")
-                .map(PathBuf::from)
-                .filter(|shell| shell.exists())
+            std::env::var("SHELL")
+                .ok()
+                .filter(|shell| Path::new(shell).exists())
         })
-        .unwrap_or_else(|| PathBuf::from("/bin/sh"))
+        .unwrap_or_else(|| "/bin/sh".to_owned())
 }
 
 /// The login shell the user database gives the process's user: `/etc/passwd` on Linux, Directory
 /// Services on macOS.
-fn database_shell() -> Option<PathBuf> {
+fn database_shell() -> Option<String> {
     let uid = rustix::process::getuid().as_raw();
     let mut size = 16 * 1024;
     loop {
@@ -155,6 +168,6 @@ fn database_shell() -> Option<PathBuf> {
         }
         // SAFETY: a NUL-terminated string in `buffer`.
         let shell = unsafe { std::ffi::CStr::from_ptr(shell) };
-        return Some(PathBuf::from(OsStr::from_bytes(shell.to_bytes())));
+        return shell.to_str().ok().map(str::to_owned);
     }
 }

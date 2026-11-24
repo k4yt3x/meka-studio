@@ -4,14 +4,15 @@
 
 use std::{
     net::{IpAddr, SocketAddr},
-    path::{Path, PathBuf},
+    path::{Component, Path, PathBuf},
     time::Duration,
 };
 
 use anyhow::{Context, bail};
 use ipnet::IpNet;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
+use utoipa::ToSchema;
 
 /// How long a terminal nobody has used lives on, unless the config says otherwise.
 const DEFAULT_TERMINAL_IDLE: Duration = Duration::from_secs(24 * 60 * 60);
@@ -56,6 +57,8 @@ struct RawTerminal {
     #[serde(default = "default_terminal_idle", with = "humantime_serde")]
     idle_timeout: Duration,
     shell: Option<String>,
+    #[serde(default)]
+    shell_args: Vec<String>,
 }
 
 impl Default for RawTerminal {
@@ -64,6 +67,7 @@ impl Default for RawTerminal {
             enabled: true,
             idle_timeout: DEFAULT_TERMINAL_IDLE,
             shell: None,
+            shell_args: Vec::new(),
         }
     }
 }
@@ -131,8 +135,43 @@ pub(crate) struct TerminalConfig {
     pub(crate) enabled: bool,
     /// How long a terminal nobody is attached to or typing in lives on.
     pub(crate) idle_timeout: Duration,
-    /// The shell to run, instead of the user's login shell.
-    pub(crate) shell: Option<PathBuf>,
+    /// The shell to run unless the user chooses one, instead of their login shell.
+    pub(crate) shell: Option<ShellCommand>,
+}
+
+/// What a terminal runs: a program, and what it is given.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub(crate) struct ShellCommand {
+    /// The program's name, found on `PATH`, or its full path.
+    pub(crate) program: String,
+    /// Its arguments.
+    pub(crate) args: Vec<String>,
+}
+
+impl ShellCommand {
+    /// Refuses an empty program; one that is neither a name nor a full path, which would be looked
+    /// for in each terminal's own folder; and a NUL, which no program can be given.
+    pub(crate) fn check(&self) -> anyhow::Result<()> {
+        if self.program.contains('\0') || self.args.iter().any(|arg| arg.contains('\0')) {
+            bail!("the shell's program and arguments cannot hold a NUL character");
+        }
+        if self.program.trim().is_empty() {
+            bail!("the shell's program is empty");
+        }
+        let path = Path::new(&self.program);
+        let mut parts = path.components();
+        let named = matches!(
+            (parts.next(), parts.next()),
+            (Some(Component::Normal(_)), None)
+        );
+        if !named && !path.is_absolute() {
+            bail!(
+                "{} is not a full path; give one, or a program's name to find on PATH",
+                self.program
+            );
+        }
+        Ok(())
+    }
 }
 
 impl Config {
@@ -172,7 +211,23 @@ impl Config {
         {
             bail!("push.subject must be a mailto: or https: address, which Apple insists on");
         }
-        let shell = raw.terminal.shell.as_deref().map(expand).transpose()?;
+        let shell = match raw.terminal.shell {
+            Some(program) => {
+                let shell = ShellCommand {
+                    program: expand(&program)?
+                        .into_os_string()
+                        .into_string()
+                        .map_err(|_| anyhow::anyhow!("terminal.shell is not UTF-8"))?,
+                    args: raw.terminal.shell_args,
+                };
+                shell.check().context("terminal.shell")?;
+                Some(shell)
+            }
+            None if !raw.terminal.shell_args.is_empty() => {
+                bail!("terminal.shell_args needs terminal.shell, the program they are given to")
+            }
+            None => None,
+        };
         Ok(Self {
             listen: raw.listen,
             public_origin,
@@ -455,9 +510,44 @@ mod tests {
         assert_eq!(config.trusted_proxies.len(), 2);
         assert!(config.push_subject.is_some());
         assert_eq!(
-            config.terminal.shell.as_deref(),
-            Some(Path::new("/bin/bash"))
+            config.terminal.shell,
+            Some(ShellCommand {
+                program: "bash".to_owned(),
+                args: vec!["--noprofile".to_owned()],
+            })
         );
+    }
+
+    #[test]
+    fn shell_args_need_a_shell() {
+        let args = format!("{MINIMAL}\n[terminal]\nshell_args = [\"-l\"]\n");
+        let error = format!("{:#}", Config::parse(&args).unwrap_err());
+        assert!(error.contains("needs terminal.shell"), "{error}");
+        let none = format!("{MINIMAL}\n[terminal]\nshell_args = []\n");
+        assert!(Config::parse(&none).unwrap().terminal.shell.is_none());
+    }
+
+    #[test]
+    fn a_shell_is_a_name_or_a_full_path() {
+        let shell = |program: &str| ShellCommand {
+            program: program.to_owned(),
+            args: Vec::new(),
+        };
+        let full = if cfg!(windows) {
+            r"C:\Program Files\PowerShell\7\pwsh.exe"
+        } else {
+            "/usr/bin/fish"
+        };
+        assert!(shell("pwsh.exe").check().is_ok());
+        assert!(shell(full).check().is_ok());
+        for refused in ["", "  ", "bin/fish", "./fish", "..", "~/fish", "fi\0sh"] {
+            assert!(shell(refused).check().is_err(), "{refused:?}");
+        }
+        let nul = ShellCommand {
+            program: "fish".to_owned(),
+            args: vec!["-\0".to_owned()],
+        };
+        assert!(nul.check().is_err());
     }
 
     #[test]

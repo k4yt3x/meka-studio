@@ -3,6 +3,7 @@ import { useState, type FormEvent, type ReactNode } from 'react';
 import { FileCog, Pencil, RefreshCw, RotateCcw } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import {
+  gatewayKey,
   useCan,
   useConnection,
   useDesktopApp,
@@ -39,6 +40,7 @@ import {
   RestartMekaButton,
   UpdateNotice,
 } from './desktop';
+import { joinArgs, splitArgs } from './shell-args';
 
 /** A section of Settings: its heading, with `actions` beside it, over its groups. */
 function SectionPage({
@@ -64,13 +66,14 @@ function SectionPage({
 }
 
 /**
- * How Meka Studio behaves: what a conversation shows, the data this device uses, and in the desktop
- * app the app's own settings.
+ * How Meka Studio behaves: what a conversation shows, the data this device uses, the shell
+ * terminals run, and in the desktop app the app's own settings.
  */
 export function GeneralSettings() {
   const settings = useSettings();
   const runtime = useRuntime();
   const desktopApp = useDesktopApp();
+  const status = useGateway<Gateway['StatusView']>('/api/status');
   return (
     <SectionPage title="General">
       <section className="panel">
@@ -102,8 +105,77 @@ export function GeneralSettings() {
         />
         <p className="muted small">Fewer messages, pictures on tap, and batched replies.</p>
       </section>
+      {status.data?.features.terminal && <ShellSettings />}
       {desktopApp && <DesktopAppSettings />}
     </SectionPage>
+  );
+}
+
+/** The shell new terminals run, which Meka Studio keeps for every device. */
+function ShellSettings() {
+  const runtime = useRuntime();
+  const queries = useQueryClient();
+  const { account } = useConnection();
+  const setting = useGateway<Gateway['ShellSetting']>('/api/shell');
+  const action = useAction();
+  const [draft, setDraft] = useState<{ program: string; args: string }>();
+  const chosen = setting.data?.shell ?? undefined;
+  const fallback = setting.data?.default;
+  const program = draft?.program ?? chosen?.program ?? '';
+  const args = draft?.args ?? joinArgs(chosen?.args ?? []);
+  const next: Gateway['ShellCommand'] | undefined = program.trim()
+    ? { program: program.trim(), args: splitArgs(args) }
+    : undefined;
+  const changed =
+    next?.program !== chosen?.program ||
+    joinArgs(next?.args ?? []) !== joinArgs(chosen?.args ?? []);
+  function save(event: FormEvent) {
+    event.preventDefault();
+    if (!changed) return;
+    void action.run(async () => {
+      const saved = next
+        ? await runtime.gateway.send<Gateway['ShellSetting']>('PUT', '/api/shell', next)
+        : await runtime.gateway.send<Gateway['ShellSetting']>('DELETE', '/api/shell');
+      queries.setQueryData(gatewayKey(account?.device_id, '/api/shell'), saved);
+      setDraft(undefined);
+    });
+  }
+  return (
+    <section className="panel">
+      <h2>Terminal</h2>
+      <form className="form-stack" onSubmit={save}>
+        <Field label="Shell">
+          <input
+            value={program}
+            placeholder={fallback?.program}
+            disabled={!setting.data}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onChange={(event) => setDraft({ program: event.target.value, args })}
+          />
+        </Field>
+        <Field label="Arguments">
+          <input
+            value={next ? args : ''}
+            placeholder={next ? undefined : joinArgs(fallback?.args ?? [])}
+            disabled={!setting.data || !next}
+            autoCapitalize="off"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            onChange={(event) => setDraft({ program, args: event.target.value })}
+          />
+        </Field>
+        <div className="actions">
+          <Button type="submit" disabled={!changed || action.busy}>
+            {action.busy ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      </form>
+      <ErrorNotice error={setting.error ?? action.error} />
+    </section>
   );
 }
 

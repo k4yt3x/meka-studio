@@ -1,8 +1,9 @@
-//! Terminals: the user's login shell on a pseudo-terminal, or PowerShell on a pseudo console on
-//! Windows, run by Meka Studio and reached over a WebSocket. A shell outlives the connections to
-//! it, keeping its recent output, since iOS suspends the app whenever it is out of sight: coming
-//! back, from that device or another, replays what was missed and carries on. A shell nobody is
-//! attached to or typing in is closed after the configured idle time.
+//! Terminals: the shell the user chose, else the config's, else their login shell on a
+//! pseudo-terminal, or PowerShell on a pseudo console on Windows, run by Meka Studio and reached
+//! over a WebSocket. A shell outlives the connections to it, keeping its recent output, since iOS
+//! suspends the app whenever it is out of sight: coming back, from that device or another, replays
+//! what was missed and carries on. A shell nobody is attached to or typing in is closed after the
+//! configured idle time.
 //!
 //! Closing a terminal hangs it up, as closing a terminal window does: the shell's process group is
 //! sent `SIGHUP` and the pseudo-terminal is closed, which hangs up whatever else holds it, and the
@@ -22,6 +23,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use anyhow::Context;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
@@ -32,7 +34,7 @@ use tokio::{
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-use crate::config::TerminalConfig;
+use crate::config::{ShellCommand, TerminalConfig};
 
 /// How much recent output a terminal keeps to replay.
 const SCROLLBACK_BYTES: usize = 512 * 1024;
@@ -266,10 +268,20 @@ impl Terminals {
         views
     }
 
-    /// Opens a shell in `cwd`, `cols` by `rows`, for the Meka session `session` if any, which may
+    /// The shell terminals run unless the user chose one: the config's, else the user's login
+    /// shell, or PowerShell on Windows.
+    pub(crate) fn default_shell(&self) -> ShellCommand {
+        self.config.shell.clone().unwrap_or_else(|| ShellCommand {
+            program: pty::default_shell(),
+            args: Vec::new(),
+        })
+    }
+
+    /// Opens `shell` in `cwd`, `cols` by `rows`, for the Meka session `session` if any, which may
     /// have several.
     pub(crate) fn open(
         self: &Arc<Self>,
+        shell: &ShellCommand,
         cwd: &Path,
         cols: u16,
         rows: u16,
@@ -287,13 +299,13 @@ impl Terminals {
             anyhow::bail!("{} is not a folder", cwd.display());
         }
         let (cols, rows) = (cols.clamp(2, 1000), rows.clamp(2, 500));
-        let shell = self.config.shell.clone().unwrap_or_else(pty::default_shell);
         let pty::Started {
             output: mut reader,
             input: writer,
             shell,
             process,
-        } = pty::start(&shell, cwd, cols, rows)?;
+        } = pty::start(Path::new(&shell.program), &shell.args, cwd, cols, rows)
+            .with_context(|| format!("could not start {}", shell.program))?;
         let (output, _) = broadcast::channel(OUTPUT_BACKLOG);
         let (ended_sender, ended) = watch::channel(false);
         let terminal = Arc::new(Terminal {
@@ -468,12 +480,21 @@ mod tests {
         TerminalConfig {
             enabled: true,
             idle_timeout: Duration::from_secs(60),
-            shell: Some(PathBuf::from(if cfg!(windows) {
-                "cmd.exe"
-            } else {
-                "/bin/sh"
-            })),
+            shell: Some(ShellCommand {
+                program: if cfg!(windows) { "cmd.exe" } else { "/bin/sh" }.to_owned(),
+                args: Vec::new(),
+            }),
         }
+    }
+
+    /// Opens the configured shell in `dir`, for the Meka session `session` if any.
+    fn open(
+        terminals: &Arc<Terminals>,
+        dir: &Path,
+        session: Option<&str>,
+    ) -> anyhow::Result<TerminalView> {
+        let shell = terminals.default_shell();
+        terminals.open(&shell, dir, 80, 24, session.map(str::to_owned))
     }
 
     /// A line that has the shell work out a sum, and what it prints: not in the line itself, which
@@ -510,7 +531,7 @@ mod tests {
     async fn a_shell_runs_and_replays_to_a_connection_that_comes_back() {
         let terminals = Terminals::new(&config());
         let dir = tempfile::tempdir().unwrap();
-        let view = terminals.open(dir.path(), 80, 24, None).unwrap();
+        let view = open(&terminals, dir.path(), None).unwrap();
         let mut first = terminals.attach(&view.id).unwrap();
         let (line, printed) = sum();
         first.terminal.input(line).await.unwrap();
@@ -542,7 +563,7 @@ mod tests {
     async fn closing_a_terminal_ends_its_shell() {
         let terminals = Terminals::new(&config());
         let dir = tempfile::tempdir().unwrap();
-        let view = terminals.open(dir.path(), 80, 24, None).unwrap();
+        let view = open(&terminals, dir.path(), None).unwrap();
         assert!(terminals.close(&view.id).await);
         assert!(!terminals.close(&view.id).await);
         assert!(terminals.attach(&view.id).is_none());
@@ -553,7 +574,7 @@ mod tests {
     async fn closing_a_terminal_kills_a_shell_that_ignores_hang_ups() {
         let terminals = Terminals::new(&config());
         let dir = tempfile::tempdir().unwrap();
-        let view = terminals.open(dir.path(), 80, 24, None).unwrap();
+        let view = open(&terminals, dir.path(), None).unwrap();
         let mut attachment = terminals.attach(&view.id).unwrap();
         // A shell that lets go of the terminal and ignores hang-ups.
         attachment
@@ -576,13 +597,9 @@ mod tests {
     async fn a_session_finds_its_terminals_and_takes_them_when_it_goes() {
         let terminals = Terminals::new(&config());
         let dir = tempfile::tempdir().unwrap();
-        let mine = terminals
-            .open(dir.path(), 80, 24, Some("s1".to_owned()))
-            .unwrap();
-        terminals.open(dir.path(), 80, 24, None).unwrap();
-        let another = terminals
-            .open(dir.path(), 80, 24, Some("s1".to_owned()))
-            .unwrap();
+        let mine = open(&terminals, dir.path(), Some("s1")).unwrap();
+        open(&terminals, dir.path(), None).unwrap();
+        let another = open(&terminals, dir.path(), Some("s1")).unwrap();
         assert_ne!(another.id, mine.id, "a session may have several terminals");
         let listed = terminals.list(Some("s1"));
         assert_eq!(listed.len(), 2);
@@ -594,9 +611,48 @@ mod tests {
         terminals.close_all().await;
     }
 
+    #[tokio::test]
+    async fn a_shell_is_given_its_arguments() {
+        let terminals = Terminals::new(&config());
+        let dir = tempfile::tempdir().unwrap();
+        let (program, args, printed) = if cfg!(windows) {
+            ("cmd.exe", ["/c", "set /a 6*7000"], "42000")
+        } else {
+            ("/bin/sh", ["-c", "echo given-$((6*7))"], "given-42")
+        };
+        let shell = ShellCommand {
+            program: program.to_owned(),
+            args: args.map(str::to_owned).to_vec(),
+        };
+        let view = terminals.open(&shell, dir.path(), 80, 24, None).unwrap();
+        let mut attachment = terminals.attach(&view.id).unwrap();
+        read_until(&mut attachment, printed).await;
+    }
+
+    #[tokio::test]
+    async fn a_shell_that_does_not_start_is_named() {
+        let terminals = Terminals::new(&config());
+        let dir = tempfile::tempdir().unwrap();
+        let shell = ShellCommand {
+            program: "no-such-shell-for-meka-studio".to_owned(),
+            args: Vec::new(),
+        };
+        let error = terminals
+            .open(&shell, dir.path(), 80, 24, None)
+            .unwrap_err();
+        let error = format!("{error:#}");
+        assert!(
+            error.starts_with("could not start no-such-shell-for-meka-studio: "),
+            "{error}"
+        );
+        #[cfg(unix)]
+        assert_eq!(error.matches("(os error 2)").count(), 1, "{error}");
+        assert!(terminals.list(None).is_empty());
+    }
+
     #[test]
     fn a_shell_is_found() {
         let shell = pty::default_shell();
-        assert!(shell.is_absolute() || cfg!(windows), "{}", shell.display());
+        assert!(Path::new(&shell).is_absolute() || cfg!(windows), "{shell}");
     }
 }

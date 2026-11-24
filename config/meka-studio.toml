@@ -36,5 +36,9 @@ token_file = "~/.config/meka-studio/meka-token"
 # How long an unused terminal stays open.
 #idle_timeout = "24h"
 
-# The shell to run, instead of your login shell, or PowerShell on Windows.
-#shell = "/bin/bash"
+# The shell new terminals run unless another is chosen in Settings, instead of your login shell, or
+# PowerShell on Windows: a program's name, found on PATH, or its full path.
+#shell = "bash"
+
+# What the shell is given.
+#shell_args = ["--noprofile"]

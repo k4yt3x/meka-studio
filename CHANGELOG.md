@@ -7,12 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.46.0] - 2026-11-24
+
 ### Added
 
 - Clicking the language in the editor's status line highlights the file as another language.
+- Settings → General chooses the shell new terminals start, with its arguments, for every device.
+- `terminal.shell_args` in the config gives `terminal.shell` its arguments.
 
 ### Changed
 
+- **Breaking:** `terminal.shell` takes a program's name or a full path; a relative path is refused.
 - Tasks lists the running tasks, and All lists finished ones too.
 - Tasks folds a long task's description and result to their first lines, with Show more.
 - Files remembers showing hidden files, its scroll and its selection for each session.
@@ -861,7 +866,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Light and dark themes, narrow layouts, and collapsible, resizable session panels.
 - Hosting at the root or a subpath, with GitHub Pages deployment on version tags.
 
-[Unreleased]: https://github.com/k4yt3x/meka-studio/compare/0.45.1...HEAD
+[Unreleased]: https://github.com/k4yt3x/meka-studio/compare/0.46.0...HEAD
+[0.46.0]: https://github.com/k4yt3x/meka-studio/compare/0.45.1...0.46.0
 [0.45.1]: https://github.com/k4yt3x/meka-studio/compare/0.45.0...0.45.1
 [0.45.0]: https://github.com/k4yt3x/meka-studio/compare/0.44.0...0.45.0
 [0.44.0]: https://github.com/k4yt3x/meka-studio/compare/0.43.0...0.44.0

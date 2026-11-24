@@ -101,6 +101,11 @@ pub(crate) fn signed_in() -> OpenApiRouter<App> {
         .routes(routes!(git::history))
         .routes(routes!(terminal::terminals, terminal::open_terminal))
         .routes(routes!(terminal::close_terminal))
+        .routes(routes!(
+            terminal::shell,
+            terminal::choose_shell,
+            terminal::clear_shell
+        ))
         .routes(routes!(desktop::enter))
         .routes(routes!(desktop::state))
         .routes(routes!(desktop::save_settings))

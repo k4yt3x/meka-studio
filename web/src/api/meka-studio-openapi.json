@@ -6,7 +6,7 @@
     "license": {
       "name": "AGPL-3.0-or-later"
     },
-    "version": "0.45.1"
+    "version": "0.46.0"
   },
   "paths": {
     "/api/account/devices": {
@@ -2263,6 +2263,105 @@
         }
       }
     },
+    "/api/shell": {
+      "get": {
+        "tags": ["terminal"],
+        "operationId": "shell",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShellSetting"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Terminals are turned off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": ["terminal"],
+        "summary": "Chooses the shell new terminals run; those open keep theirs.",
+        "operationId": "choose_shell",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ShellCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShellSetting"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The program is neither a name nor a full path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Terminals are turned off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": ["terminal"],
+        "summary": "Goes back to the default shell for new terminals.",
+        "operationId": "clear_shell",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ShellSetting"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Terminals are turned off",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/status": {
       "get": {
         "tags": ["status"],
@@ -3443,6 +3542,46 @@
             "type": ["string", "null"],
             "format": "date-time",
             "description": "When the person last confirmed who they are on this device."
+          }
+        }
+      },
+      "ShellCommand": {
+        "type": "object",
+        "description": "What a terminal runs: a program, and what it is given.",
+        "required": ["program", "args"],
+        "properties": {
+          "args": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Its arguments."
+          },
+          "program": {
+            "type": "string",
+            "description": "The program's name, found on `PATH`, or its full path."
+          }
+        }
+      },
+      "ShellSetting": {
+        "type": "object",
+        "description": "The shell new terminals run.",
+        "required": ["default"],
+        "properties": {
+          "default": {
+            "$ref": "#/components/schemas/ShellCommand",
+            "description": "What runs unless they choose: the config's shell, else their login shell, or PowerShell on\nWindows."
+          },
+          "shell": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ShellCommand",
+                "description": "The shell the user chose, if they did."
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },

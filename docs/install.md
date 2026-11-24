@@ -183,7 +183,7 @@ Register-ScheduledTask meka-studio -Action $action -Trigger $trigger -Principal 
 Start-ScheduledTask meka-studio
 ```
 
-Its terminals run PowerShell unless `terminal.shell` names another shell.
+Its terminals run PowerShell unless **Settings → General** or `terminal.shell` names another shell.
 
 ## 6. Reach it over HTTPS
 

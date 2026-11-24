@@ -1,6 +1,6 @@
 //! The SQLite database in the state folder: the user, their passkeys, sign-ins and the devices they
-//! came from, the sign-in log, push subscriptions, synced preferences, uploads in progress, and
-//! Meka Studio's own keys.
+//! came from, the sign-in log, push subscriptions, synced preferences, the shell their terminals
+//! run, uploads in progress, and Meka Studio's own keys.
 
 use std::{
     path::Path,
@@ -13,6 +13,8 @@ use chrono::{DateTime, Utc};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 use uuid::Uuid;
 use webauthn_rs::prelude::Passkey;
+
+use crate::config::ShellCommand;
 
 /// How long a write waits for another to finish before failing.
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
@@ -102,6 +104,15 @@ const MIGRATIONS: &[&str] = &[
         size INTEGER NOT NULL,
         temp TEXT NOT NULL,
         active_at TEXT NOT NULL
+    );
+",
+    r"
+    -- The shell the user's terminals run, with its arguments as a JSON array of strings.
+    CREATE TABLE IF NOT EXISTS shells (
+        user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+        program TEXT NOT NULL,
+        args TEXT NOT NULL,
+        updated_at TEXT NOT NULL
     );
 ",
 ];
@@ -802,6 +813,52 @@ impl Store {
         .await
     }
 
+    // The shell.
+
+    /// The shell the user chose for their terminals, if they did.
+    pub(crate) async fn shell(&self, user: i64) -> anyhow::Result<Option<ShellCommand>> {
+        self.call(move |connection| {
+            let row: Option<(String, String)> = connection
+                .query_row(
+                    "SELECT program, args FROM shells WHERE user_id = ?1",
+                    [user],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .optional()?;
+            row.map(|(program, args)| {
+                Ok(ShellCommand {
+                    program,
+                    args: serde_json::from_str(&args).context("a shell's arguments do not read")?,
+                })
+            })
+            .transpose()
+        })
+        .await
+    }
+
+    /// Saves the shell the user chose for their terminals.
+    pub(crate) async fn set_shell(&self, user: i64, shell: &ShellCommand) -> anyhow::Result<()> {
+        let program = shell.program.clone();
+        let args = serde_json::to_string(&shell.args)?;
+        self.call(move |connection| {
+            connection.execute(
+                "INSERT INTO shells (user_id, program, args, updated_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT (user_id) DO UPDATE SET program = excluded.program, args = excluded.args, updated_at = excluded.updated_at",
+                params![user, program, args, now()],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Forgets the shell the user chose, so their terminals run the default.
+    pub(crate) async fn clear_shell(&self, user: i64) -> anyhow::Result<()> {
+        self.call(move |connection| {
+            connection.execute("DELETE FROM shells WHERE user_id = ?1", [user])?;
+            Ok(())
+        })
+        .await
+    }
+
     // Secrets.
 
     /// Keeps Meka Studio's secret `name`, unless it has one already; the one it has after.
@@ -1065,6 +1122,28 @@ mod tests {
             "owner",
             "a flood of failures leaves the sign-in"
         );
+    }
+
+    #[tokio::test]
+    async fn a_chosen_shell_is_kept_until_cleared() {
+        let store = Store::in_memory().unwrap();
+        store.add_user("me", "hash").await.unwrap();
+        let user = store.user().await.unwrap().unwrap().id;
+        assert_eq!(store.shell(user).await.unwrap(), None);
+        let shell = ShellCommand {
+            program: "wsl.exe".to_owned(),
+            args: vec!["-d".to_owned(), "Ubuntu 24.04".to_owned()],
+        };
+        store.set_shell(user, &shell).await.unwrap();
+        assert_eq!(store.shell(user).await.unwrap(), Some(shell));
+        let fish = ShellCommand {
+            program: "/usr/bin/fish".to_owned(),
+            args: Vec::new(),
+        };
+        store.set_shell(user, &fish).await.unwrap();
+        assert_eq!(store.shell(user).await.unwrap(), Some(fish));
+        store.clear_shell(user).await.unwrap();
+        assert_eq!(store.shell(user).await.unwrap(), None);
     }
 
     #[tokio::test]

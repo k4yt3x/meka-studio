@@ -845,6 +845,24 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/shell': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['shell'];
+    /** Chooses the shell new terminals run; those open keep theirs. */
+    put: operations['choose_shell'];
+    post?: never;
+    /** Goes back to the default shell for new terminals. */
+    delete: operations['clear_shell'];
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/status': {
     parameters: {
       query?: never;
@@ -1395,6 +1413,22 @@ export interface components {
        * @description When the person last confirmed who they are on this device.
        */
       verified_at?: string | null;
+    };
+    /** @description What a terminal runs: a program, and what it is given. */
+    ShellCommand: {
+      /** @description Its arguments. */
+      args: string[];
+      /** @description The program's name, found on `PATH`, or its full path. */
+      program: string;
+    };
+    /** @description The shell new terminals run. */
+    ShellSetting: {
+      /**
+       * @description What runs unless they choose: the config's shell, else their login shell, or PowerShell on
+       *     Windows.
+       */
+      default: components['schemas']['ShellCommand'];
+      shell?: components['schemas']['ShellCommand'] | null;
     };
     /** @description How many devices were signed out. */
     SignedOut: {
@@ -3567,6 +3601,103 @@ export interface operations {
         };
       };
       502: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  shell: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ShellSetting'];
+        };
+      };
+      /** @description Terminals are turned off */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  choose_shell: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': components['schemas']['ShellCommand'];
+      };
+    };
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ShellSetting'];
+        };
+      };
+      /** @description The program is neither a name nor a full path */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+      /** @description Terminals are turned off */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['Problem'];
+        };
+      };
+    };
+  };
+  clear_shell: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ShellSetting'];
+        };
+      };
+      /** @description Terminals are turned off */
+      404: {
         headers: {
           [name: string]: unknown;
         };
