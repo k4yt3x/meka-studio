@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Clicking the language in the editor's status line highlights the file as another language.
+
 ### Changed
 
 - Tasks lists the running tasks, and All lists finished ones too.

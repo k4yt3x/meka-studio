@@ -64,8 +64,19 @@ export interface Documents {
   saved(path: string, mark: unknown): boolean;
   /** Forgets the document of a file no longer open. */
   drop(path: string): void;
-  /** Follows the file `from`, now at `to`, highlighted as its new name says. */
+  /**
+   * Follows the file `from`, now at `to`, highlighted as its new name says unless a language was
+   * chosen for it.
+   */
   rename(from: string, to: string): void;
+  /** The languages this editor can highlight a file as, by name. */
+  languages(): readonly Language[];
+}
+
+/** A language an editor can highlight a file as: the id it knows it by, and its name. */
+export interface Language {
+  id: string;
+  name: string;
 }
 
 /**
@@ -221,6 +232,8 @@ export class EditorStore {
   private changes = new Map<string, string>();
   /** The Markdown files shown rendered, rather than to edit or beside the last commit. */
   private rendered = new Set<string>();
+  /** The language chosen for each file it was chosen for, by its id in the editor in use. */
+  private languages = new Map<string, string>();
   documents: Documents | undefined;
 
   constructor(
@@ -483,6 +496,18 @@ export class EditorStore {
     this.emit();
   }
 
+  /** The language chosen for the file `path`, by its id, if one was. */
+  languageOf(path: string): string | undefined {
+    return this.languages.get(path);
+  }
+
+  /** Highlights the file `path` as the language `id`, or with none, as its name says. */
+  chooseLanguage(path: string, id: string | undefined) {
+    if (id === undefined) this.languages.delete(path);
+    else this.languages.set(path, id);
+    this.emit();
+  }
+
   /** Whether the Markdown file `path` shows rendered. */
   renders(path: string): boolean {
     return this.rendered.has(path);
@@ -570,6 +595,9 @@ export class EditorStore {
         deleted: false,
         conflict: file.conflict?.kind === 'deleted' ? undefined : file.conflict,
       });
+      const chosen = this.languages.get(path);
+      this.languages.delete(path);
+      if (chosen !== undefined) this.languages.set(now, chosen);
       this.documents?.rename(path, now);
       if (this.again.delete(path)) this.again.add(now);
       if (this.unread.delete(path)) this.unread.add(now);
@@ -690,6 +718,7 @@ export class EditorStore {
       this.lines.delete(key);
       this.changes.delete(key);
       this.rendered.delete(key);
+      this.languages.delete(key);
       this.documents?.drop(key);
     }
   }
@@ -952,6 +981,7 @@ export class EditorStore {
     this.unread.clear();
     this.changes.clear();
     this.rendered.clear();
+    this.languages.clear();
     this.emit();
   }
 }

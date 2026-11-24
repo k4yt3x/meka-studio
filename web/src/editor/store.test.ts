@@ -70,6 +70,7 @@ function setup(disk: Disk, kept?: Kept) {
       held.delete(from);
       if (text !== undefined) held.set(to, text);
     }),
+    languages: () => [],
   };
   store.documents = documents;
   return { store, held, documents, send, get };
@@ -287,6 +288,25 @@ describe('editor store', () => {
     store.showRendered('/v/a.md', true);
     store.close('s', ['/v/a.md']);
     expect(store.renders('/v/a.md')).toBe(false);
+  });
+
+  it('highlights a file as the language chosen for it until it closes, through renames', () => {
+    const { store, documents } = setup({ '/w/a.txt': { text: 'a', version: 'v0' } });
+    store.open('s', '/w/a.txt');
+    store.chooseLanguage('/w/a.txt', 'python');
+    let seen: string | undefined;
+    vi.mocked(documents.rename).mockImplementation((_from, to) => {
+      seen = store.languageOf(to);
+    });
+    store.moved('/w', '/v');
+    // The editor following the file finds the choice under its new path.
+    expect(seen).toBe('python');
+    expect(store.languageOf('/w/a.txt')).toBeUndefined();
+    store.chooseLanguage('/v/a.txt', undefined);
+    expect(store.languageOf('/v/a.txt')).toBeUndefined();
+    store.chooseLanguage('/v/a.txt', 'rust');
+    store.close('s', ['/v/a.txt']);
+    expect(store.languageOf('/v/a.txt')).toBeUndefined();
   });
 
   it('opens a file to look at as the preview tab, which the next takes the place of until kept', async () => {

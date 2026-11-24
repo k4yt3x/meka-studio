@@ -118,11 +118,24 @@ function frame(dark: boolean, fontSize: number) {
   );
 }
 
-/** Each open file's state, as it was last saved or read, the read it is up to, and its language. */
+/**
+ * Each open file's state, as it was last saved or read, the read it is up to, and its language,
+ * with the highlighting last asked of it, which alone takes effect once its language loads.
+ */
 const held = new Map<
   string,
-  { state: EditorState; saved: Text; revision: number; language: string }
+  { state: EditorState; saved: Text; revision: number; language: string; highlighting: number }
 >();
+let highlightings = 0;
+/** What a file no language is found for is highlighted as: none. */
+const PLAIN = 'Plain text';
+
+/** The language chosen, by its name, or else the one the file `name` says. */
+function describe(name: string, chosen: string | undefined) {
+  return chosen !== undefined
+    ? languages.find((each) => each.name === chosen)
+    : LanguageDescription.matchFilename(languages, name);
+}
 
 function registerDocuments(store: EditorStore) {
   if (store.documents) return;
@@ -147,6 +160,11 @@ function registerDocuments(store: EditorStore) {
       held.delete(from);
       if (each) held.set(to, each);
     },
+    languages: () =>
+      [
+        { id: PLAIN, name: PLAIN },
+        ...languages.map((each) => ({ id: each.name, name: each.name })),
+      ].sort((a, b) => a.name.localeCompare(b.name)),
   };
 }
 
@@ -204,15 +222,17 @@ function stateFor(
   return EditorState.create({ doc: open.text.replaceAll('\r\n', '\n'), extensions });
 }
 
-/** Highlights the file `path` as its `name` says, once the language loads. */
-function highlight(shown: Shown, path: string, name: string) {
+/** Highlights the file `path` as the language `chosen`, or else as its `name` says, once it loads. */
+function highlight(shown: Shown, path: string, name: string, chosen: string | undefined) {
   const each = held.get(path);
   if (!each) return;
-  const description = LanguageDescription.matchFilename(languages, name);
-  each.language = description?.name ?? 'Plain text';
+  const description = describe(name, chosen);
+  each.language = description?.name ?? PLAIN;
+  const asked = ++highlightings;
+  each.highlighting = asked;
   void (description ? description.load() : Promise.resolve<Extension>([])).then((support) => {
     const kept = held.get(path);
-    if (!kept) return;
+    if (!kept || kept.highlighting !== asked) return;
     const effects = compartments.language.reconfigure(support);
     if (shown.path === path && shown.view) shown.view.dispatch({ effects });
     else kept.state = kept.state.update({ effects }).state;
@@ -228,9 +248,9 @@ function heldFor(
   let each = held.get(open.path);
   if (!each) {
     const state = stateFor(shown, open, settings);
-    each = { state, saved: state.doc, revision: open.revision, language: 'Plain text' };
+    each = { state, saved: state.doc, revision: open.revision, language: PLAIN, highlighting: 0 };
     held.set(open.path, each);
-    highlight(shown, open.path, open.name);
+    highlight(shown, open.path, open.name, shown.store.languageOf(open.path));
   } else if (open.revision > each.revision) {
     each.revision = open.revision;
     const text = open.text.replaceAll('\r\n', '\n');
@@ -261,6 +281,7 @@ export function Surface({
   onZoom,
   onSave,
   onCursor,
+  language: chosen,
   onLanguage,
 }: SurfaceProps) {
   const host = useRef<HTMLDivElement>(null);
@@ -309,15 +330,22 @@ export function Surface({
     const made = current.view;
     if (!made) return;
     if (current.path !== file.path) {
-      // Renamed, the file is the one shown already, highlighted now as its new name says.
+      // Renamed, the file is the one shown already, highlighted again below.
       const renamed = made.state === each.state;
       current.path = file.path;
-      if (renamed) highlight(current, file.path, file.name);
-      else made.setState(each.state);
+      if (!renamed) made.setState(each.state);
     }
     tellCursor(current, made);
     current.language(each.language);
   }, [file, dark, fontSize, readOnly]);
+  // Highlighted as the language chosen for it, or none, as it is renamed and as one is chosen.
+  useLayoutEffect(() => {
+    const current = shown.current;
+    if (current.path !== file.path) return;
+    highlight(current, file.path, file.name, chosen);
+    const each = held.get(file.path);
+    if (each) current.language(each.language);
+  }, [file.path, file.name, chosen]);
   // Each time the file is asked for, it goes to the lines it was opened at, over where it was left.
   useEffect(() => {
     const view = shown.current.view;
@@ -361,6 +389,7 @@ export function Surface({
  */
 export function Compare({
   name,
+  language: chosen,
   original,
   modified,
   dark,
@@ -368,13 +397,16 @@ export function Compare({
   onZoom,
   controlsRef,
   onStats,
+  onLanguage,
 }: CompareProps) {
   const host = useRef<HTMLDivElement>(null);
   useTextZoom(host, onZoom);
   const view = useRef<EditorView | undefined>(undefined);
   const told = useRef(onStats);
+  const named = useRef(onLanguage);
   useEffect(() => {
     told.current = onStats;
+    named.current = onLanguage;
   });
   useEffect(() => {
     if (!controlsRef) return;
@@ -427,17 +459,17 @@ export function Compare({
     view.current = made;
     told.current?.(...lineCounts(made.state));
     let shown = true;
-    void LanguageDescription.matchFilename(languages, name)
-      ?.load()
-      .then((support) => {
-        if (shown) made.dispatch({ effects: language.reconfigure(support) });
-      });
+    const description = describe(name, chosen);
+    named.current?.(description?.name ?? PLAIN);
+    void description?.load().then((support) => {
+      if (shown) made.dispatch({ effects: language.reconfigure(support) });
+    });
     return () => {
       shown = false;
       view.current = undefined;
       made.destroy();
     };
-  }, [store, path, revision, text, name, original, dark, fontSize]);
+  }, [store, path, revision, text, name, chosen, original, dark, fontSize]);
   return <div ref={host} className="code-surface" data-surface="codemirror-diff" />;
 }
 

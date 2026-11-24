@@ -4,7 +4,7 @@ import 'monaco-editor/features/register.all';
 import 'monaco-editor/languages/definitions/register.all';
 import EditorWorker from 'monaco-editor/editor/editor.worker?worker';
 import { shikiToMonaco, textmateThemeToMonacoTheme } from '@shikijs/monaco';
-import { loadGrammar, loadThemes } from '../components/highlighter';
+import { grammars, loadGrammar, loadThemes } from '../components/highlighter';
 import { useTextZoom } from '../components/text-zoom';
 import { basename, language } from '../files/paths';
 import type { EditorStore, OpenFile } from './store';
@@ -55,9 +55,12 @@ const themesReady = defineThemes();
 /** The grammars bridged to Monaco, by the name it knows each by. */
 const bridged = new Set<string>();
 
-/** Highlights the language of the file `name` with its Shiki grammar; the language's id. */
-async function languageFor(name: string): Promise<string> {
-  const wanted = language(name);
+/**
+ * Highlights the language `chosen`, a grammar's id, or else the one the file `name` says, with its
+ * Shiki grammar; the language's id.
+ */
+async function languageFor(name: string, chosen: string | undefined): Promise<string> {
+  const wanted = chosen ?? language(name);
   const grammar = wanted ? await loadGrammar(wanted).catch(() => undefined) : undefined;
   if (!grammar) return 'plaintext';
   const { engine, id } = grammar;
@@ -75,10 +78,39 @@ async function languageFor(name: string): Promise<string> {
   return id;
 }
 
-/** The language Monaco knows by `id`, as people name it. */
+/** The language Monaco knows by `id`, as people name it: as the list to choose from does. */
 function languageName(id: string) {
   if (id === 'plaintext') return 'Plain text';
-  return monaco.languages.getLanguages().find((known) => known.id === id)?.aliases?.[0] ?? id;
+  return (
+    grammars().find((grammar) => grammar.id === id)?.name ??
+    monaco.languages.getLanguages().find((known) => known.id === id)?.aliases?.[0] ??
+    id
+  );
+}
+
+/** The last highlighting asked of each model, which alone takes effect once its grammar loads. */
+const highlighting = new WeakMap<monaco.editor.ITextModel, number>();
+let highlightings = 0;
+
+/**
+ * Highlights `models` as the language `chosen`, or else as the file `name` says, telling `named`
+ * the language's name once it is known.
+ */
+function highlightAs(
+  models: readonly (monaco.editor.ITextModel | undefined)[],
+  name: string,
+  chosen: string | undefined,
+  named?: (name: string) => void,
+) {
+  const asked = ++highlightings;
+  for (const model of models) if (model) highlighting.set(model, asked);
+  void languageFor(name, chosen).then((id) => {
+    const current = models.filter(
+      (model) => model && !model.isDisposed() && highlighting.get(model) === asked,
+    );
+    for (const model of current) monaco.editor.setModelLanguage(model!, id);
+    if (current.length) named?.(languageName(id));
+  });
 }
 
 /** Each open file's model, with the point it was last saved or read at, and where it is now. */
@@ -131,10 +163,12 @@ function registerDocuments(store: EditorStore) {
       const view = views.get(from);
       views.delete(from);
       if (view) views.set(to, view);
-      void languageFor(basename(to)).then((id) => {
-        if (!held.model.isDisposed()) monaco.editor.setModelLanguage(held.model, id);
-      });
+      highlightAs([held.model], basename(to), store.languageOf(to));
     },
+    languages: () =>
+      [{ id: 'plaintext', name: 'Plain text' }, ...grammars()].sort((a, b) =>
+        a.name.localeCompare(b.name),
+      ),
   };
 }
 
@@ -183,9 +217,7 @@ function modelFor(store: EditorStore, file: OpenFile) {
     model.onDidChangeContent(() =>
       store.setDirty(kept.path, kept.model.getAlternativeVersionId() !== kept.saved),
     );
-    void languageFor(file.name).then((id) => {
-      if (!model.isDisposed()) monaco.editor.setModelLanguage(model, id);
-    });
+    highlightAs([model], file.name, store.languageOf(file.path));
   } else if (file.revision > held.revision) {
     held.revision = file.revision;
     replaceText(held.model, file.text);
@@ -248,6 +280,7 @@ export function Surface({
   onWrap,
   onSave,
   onCursor,
+  language: chosen,
   onLanguage,
   onIndentation,
 }: SurfaceProps) {
@@ -346,6 +379,11 @@ export function Surface({
       reindented.dispose();
     };
   }, [store, file]);
+  // A language chosen for the file, or none, highlights it so.
+  useEffect(() => {
+    const held = models.get(file.path);
+    if (held) highlightAs([held.model], file.name, chosen);
+  }, [file.path, file.name, chosen]);
   // Each time the file is asked for, it goes to the lines it was opened at, over where it was left,
   // and takes the keyboard: only a file asked for does, not one shown as a session opens.
   useEffect(() => {
@@ -379,6 +417,7 @@ export function Surface({
  */
 export function Compare({
   name,
+  language: chosen,
   original,
   modified,
   readOnly,
@@ -390,14 +429,15 @@ export function Compare({
   onSave,
   controlsRef,
   onStats,
+  onLanguage,
 }: CompareProps) {
   const host = useRef<HTMLDivElement>(null);
   useTextZoom(host, onZoom);
   const editor = useRef<monaco.editor.IStandaloneDiffEditor | undefined>(undefined);
-  const told = useRef({ onSave, onStats });
+  const told = useRef({ onSave, onStats, onLanguage });
   const initial = useRef({ fontSize, dark, wrap, sideBySide });
   useEffect(() => {
-    told.current = { onSave, onStats };
+    told.current = { onSave, onStats, onLanguage };
   });
   const store = 'store' in modified ? modified.store : undefined;
   if (store) registerDocuments(store);
@@ -449,6 +489,7 @@ export function Compare({
   // the editor as it is, focus and all.
   const path = 'file' in modified ? modified.file.path : undefined;
   const text = 'text' in modified ? modified.text : undefined;
+  const compared = useRef<monaco.editor.ITextModel[]>([]);
   useLayoutEffect(() => {
     const made = editor.current;
     if (!made) return;
@@ -456,18 +497,21 @@ export function Compare({
     const left = monaco.editor.createModel(original, 'plaintext');
     // Text stands apart from any file's model.
     const right = open ? undefined : monaco.editor.createModel(text ?? '', 'plaintext');
-    void languageFor(name).then((id) => {
-      for (const model of [left, right])
-        if (model && !model.isDisposed()) monaco.editor.setModelLanguage(model, id);
-    });
-    made.setModel({ original: left, modified: open ? modelFor(store!, open) : right! });
+    const shown = open ? modelFor(store!, open) : right!;
+    compared.current = [left, shown];
+    made.setModel({ original: left, modified: shown });
     return () => {
       // Gone with the diff editor, which goes first, it holds no models to let go of.
       if (editor.current === made) made.setModel(null);
+      compared.current = [];
       left.dispose();
       right?.dispose();
     };
-  }, [store, path, text, name, original]);
+  }, [store, path, text, original]);
+  // Both are highlighted as the file is, as they are made and as a language is chosen for it.
+  useLayoutEffect(() => {
+    highlightAs(compared.current, name, chosen, (named) => told.current.onLanguage?.(named));
+  }, [store, path, text, original, name, chosen]);
   // The file's model keeps up with what is read from disk.
   const file = 'file' in modified ? modified.file : undefined;
   useLayoutEffect(() => {

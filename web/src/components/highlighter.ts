@@ -56,6 +56,11 @@ export async function loadGrammar(language: string) {
   return { engine, id };
 }
 
+/** Every grammar Shiki has, by its id and its name. */
+export function grammars(): { id: string; name: string }[] {
+  return bundledLanguagesInfo.map(({ id, name }) => ({ id, name }));
+}
+
 /** The highlighter, with its two themes, for an editor to take them from. */
 export function loadThemes() {
   return highlighter;

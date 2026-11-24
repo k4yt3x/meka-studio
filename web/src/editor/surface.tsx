@@ -19,6 +19,8 @@ export interface SurfaceProps {
   onWrap: () => void;
   onSave: () => void;
   onCursor: (line: number, column: number) => void;
+  /** The language chosen for the file, by its id, if one was, rather than the one its name says. */
+  language: string | undefined;
   /** Told the language the file is highlighted as, by its name, once that is known. */
   onLanguage: (name: string) => void;
   /** Told how the file indents, as "Spaces: 4" or "Tab size: 4", where the editor knows. */
@@ -36,8 +38,10 @@ export interface CompareControls {
 
 /** What comparing text with other text takes: the other on the left, see {@link Compared}. */
 export interface CompareProps {
-  /** The file's name, which says how the two are highlighted. */
+  /** The file's name, which says how the two are highlighted unless `language` does. */
   name: string;
+  /** The language chosen for the file, by its id, if one was. */
+  language: string | undefined;
   original: string;
   modified: Compared;
   readOnly: boolean;
@@ -52,6 +56,8 @@ export interface CompareProps {
   controlsRef?: RefObject<CompareControls | null> | undefined;
   /** Told how many lines the right adds and removes, as that changes. */
   onStats?: ((added: number, removed: number) => void) | undefined;
+  /** Told the language the two are highlighted as, by its name, once that is known. */
+  onLanguage?: ((name: string) => void) | undefined;
 }
 
 // Each is loaded the first time a file opens: Monaco where there is a mouse, CodeMirror on a touch

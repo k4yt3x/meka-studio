@@ -77,6 +77,7 @@ import { TerminalView } from './terminal-view';
 import { useCommittedText, useGitFile } from './git-status';
 import { LineCounts } from './line-counts';
 import { PdfView } from './pdf-view';
+import { LanguagePicker } from './language-picker';
 
 /**
  * The files and terminals open in a place, such as a session: a tab for each, and the one shown
@@ -804,6 +805,7 @@ function EditorBody({
   const [comparing, setComparing] = useState(false);
   const markdown = /\.(md|markdown|mdx)$/i.test(file.name);
   const previewing = markdown && store.renders(file.path);
+  const chosenLanguage = store.languageOf(file.path);
   const readOnly = file.version === null && file.truncated;
   const text = file.kind === 'text' && file.state === 'ready';
   const conflict = file.conflict;
@@ -895,6 +897,8 @@ function EditorBody({
     );
   const compare = {
     name: file.name,
+    language: chosenLanguage,
+    onLanguage: setHighlighted,
     modified: { store, file },
     readOnly,
     dark,
@@ -1002,6 +1006,7 @@ function EditorBody({
           onZoom={onZoom}
           onWrap={toggleWrap}
           onSave={save}
+          language={chosenLanguage}
           onLanguage={setHighlighted}
           onIndentation={setIndentation}
           onCursor={(line, column) =>
@@ -1023,7 +1028,14 @@ function EditorBody({
         )}
         {indentation && <span>{indentation}</span>}
         <span>{file.eol === '\r\n' ? 'CRLF' : 'LF'}</span>
-        {highlighted && <span>{highlighted}</span>}
+        {highlighted && (
+          <LanguagePicker
+            name={highlighted}
+            chosen={chosenLanguage}
+            languages={() => store.documents?.languages() ?? []}
+            onChoose={(id) => store.chooseLanguage(file.path, id)}
+          />
+        )}
       </div>
     </>
   );
@@ -1182,6 +1194,7 @@ function CommitBody({
       </div>
       <CommittedCompare
         name={name}
+        language={undefined}
         original={after.text === undefined ? undefined : before.text}
         modified={{ text: after.text ?? '' }}
         readOnly

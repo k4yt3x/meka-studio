@@ -1947,6 +1947,64 @@ pre.bounded {
 .code-status-gap {
   flex: 1;
 }
+/* A button that reads as the line's text until pointed at. */
+.code-status-language {
+  margin-right: -6px;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+.code-status-language:hover,
+.code-status-language:focus-visible,
+.code-status-language[data-state='open'] {
+  background: var(--border);
+  color: var(--text);
+}
+.language-picker {
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(280px, calc(100vw - 20px));
+  max-height: min(380px, var(--radix-popover-content-available-height));
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
+.language-picker > [role='listbox'] {
+  min-height: 0;
+  overflow: auto;
+}
+.language-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 10px;
+  border-radius: 5px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.language-option[aria-selected='true'] {
+  background: var(--border);
+}
+.language-option > svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.language-none {
+  padding: 7px 10px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
 .code-viewer {
   flex: 1;
   min-height: 0;
